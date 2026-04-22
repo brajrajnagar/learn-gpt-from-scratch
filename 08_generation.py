@@ -35,37 +35,90 @@ print("STEP 1: Generation Basics")
 print("="*70)
 
 print("""
-AUTOREGRESSIVE GENERATION:
+REAL-WORLD EXAMPLE: Choose Your Own Adventure Book
+===================================================
 
-GPT generates text one token at a time:
+GPT generation is like reading a "Choose Your Own Adventure" book:
 
-  Prompt: "The cat"
-  ↓
-  Model predicts: P(next token | "The cat")
-  ↓
-  Sample: " sat"
-  ↓
-  New sequence: "The cat sat"
-  ↓
-  Model predicts: P(next token | "The cat sat")
-  ↓
-  Sample: " on"
-  ↓
-  Continue...
+BOOK PAGE (Current Context):
+  "You enter a dark cave. You see two paths:
+   Path A goes left into darkness.
+   Path B goes right toward light."
 
-This is called "autoregressive" because:
-- Each prediction depends on previous tokens
-- Generation is sequential (can't parallelize)
-- Continues until stop condition
+YOUR CHOICE (Token Selection):
+  - Turn to page 45 (go left)
+  - Turn to page 72 (go right)
+
+GPT DOES THE SAME THING:
+
+CURRENT TEXT: "The cat sat on the"
+MODEL PREDICTIONS:
+  - "mat" (page 45) - 45% chance
+  - "couch" (page 72) - 25% chance
+  - "floor" (page 23) - 15% chance
+  - "bed" (page 89) - 10% chance
+  - Other pages - 5% chance
+
+DECISION TIME:
+  - Greedy: Always pick page 45 ("mat")
+  - Sampling: Roll dice, might pick any page
+  - Top-k: Only consider pages 45, 72, 23, 89
+  - Top-p: Consider pages that make up 90% probability
+
+NEXT PAGE (New Context):
+  "The cat sat on the mat."
+  → Now predict the NEXT word!
+  → Continue until story ends
+
+AUTOREGRESSIVE = Building One Word at a Time
+=============================================
+
+Like building a tower with blocks:
+1. Place first block (prompt)
+2. Predict where next block goes
+3. Place next block
+4. Repeat until tower is complete
+
+Each block placement affects where future blocks can go!
 
 STOP CONDITIONS:
-1. Max length reached
-2. End-of-sequence (EOS) token generated
-3. Stop string detected (e.g., "\n\n")
-""")
+================
+1. MAX LENGTH: "I've written 100 words, time to stop"
+2. END TOKEN: "I generated [END], story complete!"
+3. STOP STRING: "I see '\n\n', that means done"
+=============================================================================""")
 
 def softmax(logits, temperature=1.0):
-    """Numerically stable softmax with temperature."""
+    """
+    Numerically stable softmax with temperature.
+    
+    REAL-WORLD EXAMPLE: Converting Scores to Percentages
+    =====================================================
+    
+    Imagine converting test scores to class rankings:
+    
+    RAW SCORES (logits): [85, 72, 91, 68, 77]
+    
+    SOFTMAX converts to percentages:
+    - Student 1: 23% (highest scorer)
+    - Student 2: 15%
+    - Student 3: 31% (best!)
+    - Student 4: 12%
+    - Student 5: 19%
+    
+    All percentages add to 100% (probability distribution)
+    
+    TEMPERATURE adjusts confidence:
+    - Low temp: "Student 3 is THE BEST at 60%!"
+    - High temp: "Everyone has a fair chance!"
+    
+    Args:
+        logits: Raw prediction scores
+        temperature: Controls confidence (lower = more confident)
+    
+    Returns:
+        Probability distribution (sums to 1.0)
+    """
     logits = logits / temperature
     logits_max = np.max(logits)
     exp_logits = np.exp(logits - logits_max)
@@ -74,6 +127,11 @@ def softmax(logits, temperature=1.0):
 print("\n" + "-"*70)
 print("Let's simulate a model's predictions!")
 print("-"*70)
+print("""
+SCENARIO: Model predicting next word after "The cat"
+
+We'll simulate what the model "thinks" should come next
+""")
 
 # Simulate a vocabulary and model logits
 np.random.seed(42)
@@ -96,399 +154,738 @@ tokens[19] = "slowly"
 # Simulate model logits for next token prediction
 # (In reality, these come from the model forward pass)
 logits = np.random.randn(vocab_size) * 2
-# Make some tokens more likely
-logits[12] += 3  # "sat"
-logits[13] += 2  # "on"
-logits[14] += 1  # "mat"
-logits[16] += 2.5  # "slept"
+# Make some tokens more likely (model "prefers" these)
+logits[12] += 3  # "sat" - most likely
+logits[13] += 2  # "on" - pretty likely
+logits[14] += 1  # "mat" - somewhat likely
+logits[16] += 2.5  # "slept" - very likely
 
-print(f"\nVocabulary size: {vocab_size}")
-print(f"Logits range: [{logits.min():.2f}, {logits.max():.2f}]")
+print(f"\n📊 Model Predictions:")
+print(f"  Vocabulary size: {vocab_size:,} possible words")
+print(f"  Logits range: [{logits.min():.2f}, {logits.max():.2f}]")
 
 # Get probabilities
 probs = softmax(logits, temperature=1.0)
-print(f"Probability range: [{probs.min():.6f}, {probs.max():.6f}]")
+print(f"  Probability range: [{probs.min():.6f}, {probs.max():.6f}]")
 
 # Show top tokens
 top_indices = np.argsort(probs)[-10:][::-1]
-print("\nTop 10 most likely next tokens:")
+print(f"\n🏆 Top 10 most likely next words:")
 for i, idx in enumerate(top_indices):
-    print(f"  {i+1}. {tokens[idx]:12} (p={probs[idx]:.6f})")
+    confidence = "⭐⭐⭐" if probs[idx] > 0.1 else "⭐⭐" if probs[idx] > 0.05 else "⭐"
+    print(f"  {i+1}. {tokens[idx]:12} (p={probs[idx]*100:.2f}%) {confidence}")
 
 # =============================================================================
 # STEP 2: Greedy Decoding
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 2: Greedy Decoding")
+print("STEP 2: Greedy Decoding - Always Pick the Best")
 print("="*70)
 
 print("""
-GREEDY DECODING:
+REAL-WORLD EXAMPLE: Always Ordering the Most Popular Dish
+==========================================================
 
-Always pick the token with highest probability.
+Imagine you're at a restaurant and ALWAYS order the most popular item:
 
-  probs = model(prompt)
-  next_token = argmax(probs)
+GREEDY CUSTOMER:
+  Waiter: "What would you like?"
+  Menu probabilities: 
+    - Pasta: 35% (most popular)
+    - Pizza: 25%
+    - Salad: 20%
+    - Soup: 15%
+    - Steak: 5%
+  
+  Greedy Customer: "I'll have the Pasta!" (always)
 
-PROS:
-- Simple and fast
-- Deterministic (same output every time)
-- Good for factual tasks
+EVERY VISIT: Same order, no variety!
 
-CONS:
-- Can produce repetitive text
-- May get stuck in loops
-- Less creative/diverse
-- Not always optimal (myopic)
+PROS OF GREEDY:
+✅ Consistent - you know what you're getting
+✅ Safe - always getting the "best" option
+✅ Fast - no deliberation needed
 
-EXAMPLE:
-  Prompt: "The cat"
-  ↓
-  P("sat") = 0.45 (highest)
-  ↓
-  Output: "The cat sat"
-""")
+CONS OF GREEDY:
+❌ Boring - same thing every time
+❌ Missing out - never try new things
+❌ Can get stuck - pasta, pasta, pasta...
+
+GREEDY DECODING IN GPT:
+======================
+
+Prompt: "The cat"
+Model predicts: P("sat")=45%, P("slept")=25%, P("ran")=10%...
+Greedy picks: "sat" (highest probability)
+
+Result: "The cat sat"
+
+Next prediction: P("on")=50%, P("and")=20%...
+Greedy picks: "on"
+
+Result: "The cat sat on"
+
+GREEDY IS DETERMINISTIC:
+- Same prompt = same output every time
+- Good for facts, code, math
+- Bad for creativity, stories, chat
+=============================================================================""")
 
 def greedy_decode(probs):
-    """Select the token with highest probability."""
+    """
+    Select the token with highest probability.
+    
+    REAL-WORLD EXAMPLE: Valedictorian Selection
+    ===========================================
+    
+    In a class of 1000 students, who has the highest GPA?
+    
+    GPAs (probs): [3.2, 3.8, 4.0, 3.5, ...]
+                  ↑
+              Student 3 wins!
+    
+    Greedy decode = argmax(probs)
+    = "Pick the champion"
+    
+    Args:
+        probs: Probability distribution
+    
+    Returns:
+        Index of highest probability token
+    """
     return np.argmax(probs)
 
 print("\n--- Greedy Decoding Example ---")
+print("="*50)
+print("""
+SCENARIO: Picking the single most likely word
+
+Like choosing the championship winner
+""")
 
 next_token_idx = greedy_decode(probs)
-print(f"Greedy selection: token_{next_token_idx} = '{tokens[next_token_idx]}'")
-print(f"Probability: {probs[next_token_idx]:.6f}")
+print(f"🎯 Greedy selection: '{tokens[next_token_idx]}'")
+print(f"   Probability: {probs[next_token_idx]*100:.4f}%")
+print(f"   → This word will ALWAYS be picked (deterministic)")
 
 # =============================================================================
 # STEP 3: Random Sampling
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 3: Random Sampling")
+print("STEP 3: Random Sampling - Roll the Dice")
 print("="*70)
 
 print("""
-RANDOM SAMPLING:
+REAL-WORLD EXAMPLE: Spinning a Prize Wheel
+==========================================
 
-Sample from the probability distribution.
+Imagine a prize wheel where each slice size = probability:
 
-  probs = model(prompt)
-  next_token = sample(probs)
+PRIZE WHEEL (Vocabulary):
+  ┌─────────────────────────────────┐
+  │  🎁 PASTA (35%) - Biggest slice │
+  │  🍕 PIZZA (25%) - Large slice   │
+  │  🥗 SALAD (20%) - Medium slice  │
+  │  🍲 SOUP (15%) - Small slice    │
+  │  🥩 STEAK (5%) - Tiny slice     │
+  └─────────────────────────────────┘
 
-PROS:
-- More diverse output
-- Less repetitive
-- More creative
+SPIN THE WHEEL (Sample):
+  - Pasta has biggest slice (35% chance)
+  - But ANY prize could win!
+  - Even steak has 5% chance!
 
-CONS:
-- Can produce incoherent text
-- Low probability tokens might be selected
-- Non-deterministic
+SAMPLING IN GPT:
+===============
 
-EXAMPLE:
-  Prompt: "The cat"
-  ↓
-  P("sat") = 0.45, P("slept") = 0.25, P("ran") = 0.10, ...
-  ↓
-  Sample: "slept" (not the most likely, but still probable)
-""")
+Prompt: "The cat"
+Model wheel:
+  - "sat" (45% slice)
+  - "slept" (25% slice)
+  - "ran" (10% slice)
+  - Others (20% combined)
+
+Spin 1: "slept" wins! (not the most likely, but possible)
+Spin 2: "sat" wins! (most likely wins this time)
+Spin 3: "ran" wins! (surprise!)
+
+PROS OF SAMPLING:
+✅ Creative - unexpected combinations
+✅ Diverse - different outputs each time
+✅ Natural - humans aren't deterministic either
+
+CONS OF SAMPLING:
+❌ Can be incoherent - might pick weird words
+❌ Low probability tokens can win - "The cat quantum"
+❌ Unpredictable - can't reproduce outputs
+
+SAMPLING = np.random.choice()
+- Python rolls the dice for you
+- Each spin is independent
+- Over many spins, distribution matches probabilities
+=============================================================================""")
 
 def sample(probs):
-    """Sample from probability distribution."""
+    """
+    Sample from probability distribution.
+    
+    REAL-WORLD EXAMPLE: Lottery Drawing
+    ====================================
+    
+    Imagine a lottery with 1000 tickets:
+    - Ticket #12 has 450 tickets (45% chance)
+    - Ticket #16 has 250 tickets (25% chance)
+    - Others share remaining 300 tickets
+    
+    Drawing: Pick one ticket at random
+    - More tickets = more likely to win
+    - But ANY ticket could win!
+    
+    Args:
+        probs: Probability distribution (must sum to 1.0)
+    
+    Returns:
+        Selected token index
+    """
     return np.random.choice(len(probs), p=probs)
 
 print("\n--- Random Sampling Example ---")
+print("="*50)
+print("""
+SCENARIO: Spinning the word wheel 10 times
 
-print("Sampling 10 times from the distribution:")
+Each spin is independent - anything can happen!
+""")
+
+print("🎡 Sampling 10 times from the distribution:")
 samples = []
 for i in range(10):
     token_idx = sample(probs)
     samples.append(tokens[token_idx])
-    print(f"  {i+1}. '{tokens[token_idx]}' (p={probs[token_idx]:.6f})")
+    rarity = "🏆 Common" if probs[token_idx] > 0.1 else "⭐ Uncommon" if probs[token_idx] > 0.05 else "💎 Rare"
+    print(f"  {i+1}. '{tokens[token_idx]}' (p={probs[token_idx]*100:.4f}%) {rarity}")
 
-print(f"\nSampled tokens: {samples}")
-print("Notice: Different tokens each time!")
+print(f"\n📊 Sampled words: {samples}")
+unique_samples = len(set(samples))
+print(f"  → {unique_samples} unique words out of 10 samples")
+print(f"  → Notice: Different tokens each time!")
 
 # =============================================================================
 # STEP 4: Temperature Scaling
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 4: Temperature Scaling")
+print("STEP 4: Temperature Scaling - Control the Randomness")
 print("="*70)
 
 print("""
-TEMPERATURE:
+REAL-WORLD EXAMPLE: Thermostat for Creativity
+=============================================
 
-Controls the randomness of predictions.
+Temperature is like a thermostat that controls creativity:
+
+🥶 COLD (T=0.1) - "Follow the Recipe Exactly"
+   - Chef is VERY confident
+   - "This is THE way to make it"
+   - Distribution is PEAKY (one clear winner)
+   - Good for: Facts, code, math
+   
+   "The capital of France is ___"
+   → "Paris" (99.9% confidence)
+
+😐 WARM (T=1.0) - "Cook Naturally"
+   - Chef is normally confident
+   - Distribution is BALANCED
+   - Good for: General conversation
+   
+   "Once upon a time"
+   → "there" (40%), "in" (25%), "a" (20%)...
+
+🔥 HOT (T=2.0) - "Experimental Fusion Cuisine"
+   - Chef is feeling adventurous
+   - "Let's try something new!"
+   - Distribution is FLAT (everything's possible)
+   - Good for: Poetry, brainstorming
+   
+   "The moonlight danced"
+   → "gracefully" (15%), "purple" (12%), "quantum" (8%)...
+
+MATHEMATICALLY:
+===============
+
+Temperature DIVIDES the logits before softmax:
 
   probs = softmax(logits / temperature)
 
-Temperature effects:
-- T < 1.0: More confident (peaky distribution)
-- T = 1.0: Normal (original distribution)
-- T > 1.0: More random (flatter distribution)
-- T → 0: Greedy (only highest probability)
-- T → ∞: Uniform (all tokens equally likely)
+LOW TEMP (0.5):
+  logits = [2, 1, 0.5]
+  logits / 0.5 = [4, 2, 1]  ← Differences amplified!
+  probs = [0.73, 0.20, 0.07]  ← More confident!
 
-EXAMPLE:
-  Logits: [2.0, 1.0, 0.5]
-  
-  T = 0.5: probs = [0.73, 0.20, 0.07]  ← More confident
-  T = 1.0: probs = [0.54, 0.33, 0.13]  ← Normal
-  T = 2.0: probs = [0.43, 0.33, 0.24]  ← More random
+HIGH TEMP (2.0):
+  logits = [2, 1, 0.5]
+  logits / 2.0 = [1, 0.5, 0.25]  ← Differences reduced!
+  probs = [0.43, 0.33, 0.24]  ← More uniform!
+
+EXTREME CASES:
+==============
+
+T → 0: GREEDY (only the top token matters)
+T = 1: NORMAL (original distribution)
+T → ∞: UNIFORM (all tokens equally likely)
+=============================================================================""")
+
+print("\n--- Temperature Effect Demonstration ---")
+print("="*50)
+print("""
+SCENARIO: Same model, different temperature settings
+
+Watch how the probability distribution changes!
 """)
 
-print("\n--- Temperature Effect ---")
-
 # Get logits for top 5 tokens
-top_logits = logits[top_indices]
-top_tokens = [tokens[i] for i in top_indices]
+top_logits = logits[top_indices[:5]]
+top_tokens = [tokens[i] for i in top_indices[:5]]
 
-print("\nComparing probabilities at different temperatures:")
-print(f"{'Token':<12} | {'T=0.5':<10} | {'T=1.0':<10} | {'T=2.0':<10}")
-print("-" * 50)
+print(f"\n🌡️ Comparing probabilities at different temperatures:")
+print(f"   Top 5 tokens: {top_tokens}")
 
-for temp in [0.5, 1.0, 2.0]:
+print("\n📊 Probability Distribution by Temperature:")
+print("="*70)
+
+for temp in [0.2, 0.5, 1.0, 1.5, 2.0]:
     probs_temp = softmax(top_logits, temperature=temp)
-    if temp == 1.0:
-        print(f"(Normal distribution)")
-    for i, (token, prob) in enumerate(zip(top_tokens, probs_temp)):
-        if temp == 0.5 or i == 0:
-            print(f"{token:<12} | {prob:<10.4f} | ", end="")
-        elif temp == 1.0:
-            print(f"{prob:<10.4f} | ", end="")
-    if temp == 2.0:
-        probs_2 = softmax(top_logits, temperature=2.0)
-        for i, prob in enumerate(probs_2):
-            if i == 0:
-                print(f"{prob:<10.4f}")
-                break
+    
+    # Create visual bar
+    emoji = "🥶" if temp < 0.5 else "😐" if temp < 1.2 else "🔥"
+    print(f"\n{emoji} Temperature = {temp}:")
+    
+    for token, prob in zip(top_tokens, probs_temp):
+        bar_length = int(prob * 50)
+        bar = "█" * bar_length
+        print(f"   {token:<12}: {prob:6.2%} {bar}")
 
-# Show full comparison
-print("\nFull comparison:")
-for temp in [0.5, 1.0, 2.0]:
-    probs_temp = softmax(top_logits, temperature=temp)
-    print(f"\nTemperature = {temp}:")
-    for i, (token, prob) in enumerate(zip(top_tokens[:5], probs_temp[:5])):
-        bar = "█" * int(prob * 50)
-        print(f"  {token:<12}: {prob:.4f} {bar}")
+print("\n" + "-"*70)
+print("KEY OBSERVATION:")
+print("-"*70)
+print("""
+🥶 COLD (T=0.2):
+   → One token dominates (peaky)
+   → Almost greedy behavior
+   → "I'm VERY sure about this"
+
+😐 NORMAL (T=1.0):
+   → Natural distribution
+   → Top tokens favored, others possible
+   → "Here's my best guess"
+
+🔥 HOT (T=2.0):
+   → Flatter distribution
+   → More tokens are viable
+   → "Let's keep our options open"
+=============================================================================""")
 
 # =============================================================================
 # STEP 5: Top-k Sampling
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 5: Top-k Sampling")
+print("STEP 5: Top-k Sampling - Limit Your Options")
 print("="*70)
 
 print("""
-TOP-k SAMPLING:
+REAL-WORLD EXAMPLE: Netflix Top 10 List
+=======================================
 
-Only sample from the k most likely tokens.
+Imagine Netflix only shows you the TOP 10 movies:
 
-  top_k_indices = argsort(probs)[-k:]
-  top_k_probs = probs[top_k_indices]
-  top_k_probs = top_k_probs / sum(top_k_probs)  # Renormalize
-  next_token = sample(top_k_probs)
+WITHOUT TOP-K (Full Sampling):
+  - 50,000 movies to choose from
+  - Might accidentally pick "Room 731" (1993 Polish documentary)
+  - Overwhelming!
 
-PROS:
-- Filters out unlikely tokens
-- More controlled than pure sampling
-- Reduces weird outputs
+WITH TOP-K (k=10):
+  - Only 10 movies to consider
+  - All are popular/watched
+  - Much easier decision!
 
-CONS:
-- Still might include bad tokens if k is large
-- Fixed k doesn't adapt to uncertainty
+TOP-K SAMPLING WORKS THE SAME WAY:
+
+STEP 1: Get all probabilities
+  ["sat": 45%, "slept": 25%, "ran": 10%, "ate": 5%, ... "xyz": 0.001%]
+
+STEP 2: Keep only top k
+  k=3: ["sat": 45%, "slept": 25%, "ran": 10%]
+  Rest are discarded!
+
+STEP 3: Renormalize (make them sum to 100%)
+  Total: 45% + 25% + 10% = 80%
+  New: ["sat": 56%, "slept": 31%, "ran": 13%]
+
+STEP 4: Sample from these k tokens
+  - Still random, but controlled
+  - Can't pick weird low-probability tokens
+
+WHY TOP-K HELPS:
+================
+
+✅ Filters out garbage tokens
+✅ More coherent than pure sampling
+✅ Still creative (multiple options)
+✅ Simple to understand
+
+❌ Fixed k doesn't adapt
+   - When model is confident: k=40 might include bad tokens
+   - When model is uncertain: k=40 might exclude good tokens
 
 TYPICAL VALUES:
-- k = 40-100 for creative writing
-- k = 10-40 for more focused output
-""")
+===============
+- k=1: Greedy decoding
+- k=5-10: Focused, constrained
+- k=40-50: Good balance (GPT-3 default range)
+- k=100+: Very diverse, risk of incoherence
+=============================================================================""")
 
 def top_k_sampling(probs, k=40):
-    """Sample from top k tokens."""
+    """
+    Sample from top k tokens.
+    
+    REAL-WORLD EXAMPLE: Job Interview Shortlist
+    ===========================================
+    
+    HR receives 1000 applications (vocab_size):
+    
+    STEP 1: Rank by qualifications
+    STEP 2: Shortlist top k=10 candidates
+    STEP 3: Renormalize (all 10 are now "viable")
+    STEP 4: Make final selection from shortlist
+    
+    Result: Can't hire the unqualified candidate
+            (but also might not hire THE BEST)
+    
+    Args:
+        probs: Probability distribution
+        k: Number of top tokens to consider
+    
+    Returns:
+        Selected token index from top k
+    """
     # Get top k indices
     top_k_indices = np.argsort(probs)[-k:][::-1]
     top_k_probs = probs[top_k_indices]
     
-    # Renormalize
+    # Renormalize (make them sum to 1.0)
     top_k_probs = top_k_probs / top_k_probs.sum()
     
-    # Sample
+    # Sample from shortlist
     sampled_idx = np.random.choice(k, p=top_k_probs)
     return top_k_indices[sampled_idx]
 
 print("\n--- Top-k Sampling Example ---")
+print("="*50)
+print("""
+SCENARIO: Only considering the top 5 words
+
+Like choosing from a curated shortlist
+""")
 
 k = 5
-print(f"Sampling from top {k} tokens:")
+print(f"📋 Sampling from top {k} tokens:")
 
 top_k_indices = np.argsort(probs)[-k:][::-1]
 top_k_probs = probs[top_k_indices]
 top_k_probs_norm = top_k_probs / top_k_probs.sum()
 
-print(f"\nTop {k} tokens and their (renormalized) probabilities:")
+print(f"\n🏆 Top {k} tokens (renormalized):")
 for i, idx in enumerate(top_k_indices):
     bar = "█" * int(top_k_probs_norm[i] * 50)
-    print(f"  {tokens[idx]:<12}: {top_k_probs_norm[i]:.4f} {bar}")
+    original_pct = probs[idx] * 100
+    new_pct = top_k_probs_norm[i] * 100
+    print(f"   {tokens[idx]:<12}: {new_pct:5.1f}% (was {original_pct:.1f}%) {bar}")
 
-print(f"\nSampling 5 times with k={k}:")
+print(f"\n🎲 Sampling 5 times with k={k}:")
 for i in range(5):
     token_idx = top_k_sampling(probs, k=k)
-    print(f"  {i+1}. '{tokens[token_idx]}'")
+    print(f"   {i+1}. '{tokens[token_idx]}'")
+
+print(f"\n   → All samples are from the top {k}!")
+print(f"   → Can never pick weird low-probability tokens")
 
 # =============================================================================
 # STEP 6: Top-p (Nucleus) Sampling
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 6: Top-p (Nucleus) Sampling")
+print("STEP 6: Top-p (Nucleus) Sampling - Dynamic Options")
 print("="*70)
 
 print("""
-TOP-p SAMPLING (Nucleus Sampling):
+REAL-WORLD EXAMPLE: Budget-Based Shopping
+=========================================
 
-Sample from the smallest set of tokens whose cumulative
-probability exceeds p.
+Imagine shopping with a $100 budget:
 
-  Sort tokens by probability (descending)
-  Find smallest k where sum(top_k_probs) >= p
-  Sample from these k tokens
+TOP-K APPROACH (Fixed number of items):
+  "I'll buy exactly 5 items"
+  → Might buy 5 cheap items ($20 total) - wasteful!
+  → Might buy 5 expensive items ($500) - over budget!
 
-PROS:
-- Dynamically adjusts vocabulary size
-- More tokens when uncertain, fewer when confident
-- Better quality than top-k in many cases
+TOP-P APPROACH (Budget-based):
+  "I'll buy items until I reach $100"
+  → Adapts to prices!
+  → Expensive items? Buy fewer.
+  → Cheap items? Buy more.
 
-CONS:
-- Slightly more complex
-- Can still produce unexpected outputs
+TOP-P SAMPLING WORKS THE SAME WAY:
+
+BUDGET = Cumulative Probability (e.g., p=0.9 = 90%)
+
+STEP 1: Sort by probability (descending)
+  ["sat": 45%, "slept": 25%, "ran": 10%, "ate": 8%, "left": 5%, "other": 7%]
+
+STEP 2: Add up probabilities until we hit budget
+  45% = 45% (keep going, under 90%)
+  45% + 25% = 70% (keep going)
+  70% + 10% = 80% (keep going)
+  80% + 8% = 88% (keep going)
+  88% + 5% = 93% ✓ STOP! (exceeded 90%)
+
+STEP 3: Nucleus = ["sat", "slept", "ran", "ate", "left"]
+  5 tokens that make up 93% of probability
+
+STEP 4: Renormalize and sample
+
+WHY TOP-P IS SMART:
+===================
+
+When model is CONFIDENT:
+  ["sat": 80%, "slept": 15%, "ran": 5%]
+  → Only 2-3 tokens needed to reach 90%
+  → Small nucleus, focused sampling
+
+When model is UNCERTAIN:
+  ["sat": 20%, "slept": 18%, "ran": 15%, ... many tokens ...]
+  → Need 20+ tokens to reach 90%
+  → Large nucleus, diverse sampling
+
+TOP-P ADAPTS TO UNCERTAINTY!
 
 TYPICAL VALUES:
-- p = 0.9-0.95 for creative writing
-- p = 0.75-0.9 for more focused output
-
-EXAMPLE:
-  probs = [0.4, 0.3, 0.15, 0.1, 0.05, ...]
-  p = 0.9
-  
-  Cumulative: [0.4, 0.7, 0.85, 0.95, 1.0, ...]
-                          ↑
-              First to exceed 0.9
-  
-  Sample from: [0.4, 0.3, 0.15, 0.1] (top 4 tokens)
-""")
+===============
+- p=0.75: Very focused (75% of probability mass)
+- p=0.9: Good balance (GPT-3 default)
+- p=0.95: More diverse
+- p=0.99: Almost full sampling
+=============================================================================""")
 
 def top_p_sampling(probs, p=0.9):
-    """Sample from top p cumulative probability."""
+    """
+    Sample from smallest set of tokens whose cumulative probability >= p.
+    
+    REAL-WORLD EXAMPLE: Pizza Budget
+    =================================
+    
+    You have a "90% probability budget":
+    
+    PIZZA SLICES (tokens) sorted by deliciousness (prob):
+    - Pepperoni: 35%
+    - Cheese: 25%
+    - Veggie: 15%
+    - Hawaiian: 10%
+    - BBQ: 8%
+    - Anchovy: 4%
+    - Spinach: 3%
+    
+    BUDGET TRACKING:
+    - After Pepperoni: 35% (keep eating!)
+    - After Cheese: 60% (keep eating!)
+    - After Veggie: 75% (keep eating!)
+    - After Hawaiian: 85% (keep eating!)
+    - After BBQ: 93% ✓ STOP! (exceeded 90%)
+    
+    NUCLEUS = [Pepperoni, Cheese, Veggie, Hawaiian, BBQ]
+    → These 5 slices make up 93% of deliciousness
+    → Sample from these!
+    
+    Args:
+        probs: Probability distribution
+        p: Cumulative probability threshold (0.9 = 90%)
+    
+    Returns:
+        Selected token index from nucleus
+    """
     # Sort by probability (descending)
     sorted_indices = np.argsort(probs)[::-1]
     sorted_probs = probs[sorted_indices]
     
-    # Cumulative probability
+    # Cumulative probability (running total)
     cumsum = np.cumsum(sorted_probs)
     
-    # Find cutoff
+    # Find where we exceed the budget
     cutoff_index = np.searchsorted(cumsum, p)
     
-    # Get top p tokens
+    # Get nucleus tokens (those within budget)
     top_p_indices = sorted_indices[:cutoff_index + 1]
     top_p_probs = sorted_probs[:cutoff_index + 1]
     
     # Renormalize
     top_p_probs = top_p_probs / top_p_probs.sum()
     
-    # Sample
+    # Sample from nucleus
     sampled_idx = np.random.choice(len(top_p_indices), p=top_p_probs)
     return top_p_indices[sampled_idx]
 
 print("\n--- Top-p Sampling Example ---")
+print("="*50)
+print("""
+SCENARIO: Sampling from tokens that make up 90% probability
+
+The nucleus grows/shrinks based on model confidence!
+""")
 
 p = 0.9
-print(f"Sampling from tokens that make up top {p*100:.0f}% probability:")
+print(f"🎯 Sampling from tokens that make up top {p*100:.0f}% probability:")
 
 # Show cumulative probability
 sorted_indices = np.argsort(probs)[::-1]
 sorted_probs = probs[sorted_indices]
 cumsum = np.cumsum(sorted_probs)
 
-print(f"\nTop tokens with cumulative probability:")
-cumulative = 0
-nucleus_size = 0
-for i, idx in enumerate(sorted_indices[:10]):
-    cumulative += probs[idx]
-    in_nucleus = "← NUCLEUS" if cumulative <= p or i == 0 else ""
-    if cumulative <= p + 0.1:  # Show a bit past cutoff
-        nucleus_size = i + 1
-    print(f"  {tokens[idx]:<12}: p={probs[idx]:.4f}, cumsum={cumulative:.4f} {in_nucleus}")
+print(f"\n📊 Top tokens with cumulative probability:")
+nucleus_end = 0
+for i, idx in enumerate(sorted_indices[:15]):
+    cumulative = cumsum[i]
+    in_nucleus = cumulative <= p
+    if in_nucleus:
+        nucleus_end = i + 1
+    status = "✅ NUCLEUS" if in_nucleus else "⛔ EXCLUDED"
+    print(f"   {tokens[idx]:<12}: p={probs[idx]*100:5.1f}%, cumsum={cumulative*100:5.1f}% {status}")
 
-print(f"\nNucleus size: {nucleus_size} tokens")
+print(f"\n🌰 Nucleus size: {nucleus_end} tokens")
+print(f"   → These {nucleus_end} tokens contain {p*100:.0f}% of probability")
 
-print(f"\nSampling 5 times with p={p}:")
+print(f"\n🎲 Sampling 5 times with p={p}:")
 for i in range(5):
     token_idx = top_p_sampling(probs, p=p)
-    print(f"  {i+1}. '{tokens[token_idx]}'")
+    print(f"   {i+1}. '{tokens[token_idx]}' (p={probs[token_idx]*100:.2f}%)")
 
 # =============================================================================
 # STEP 7: Beam Search
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 7: Beam Search")
+print("STEP 7: Beam Search - Explore Multiple Paths")
 print("="*70)
 
 print("""
-BEAM SEARCH:
+REAL-WORLD EXAMPLE: GPS Route Planning
+======================================
 
-Keep track of k best sequences and expand them.
+Imagine GPS finding the best route:
 
-  1. Generate top-k candidates for first token
-  2. For each candidate, generate top-k next tokens
-  3. Score all k×k sequences
-  4. Keep top k sequences
-  5. Repeat until done
+GREEDY APPROACH:
+  - At each intersection, pick the road that looks best
+  - Might miss better routes!
+  - Fast but potentially suboptimal
 
-PROS:
-- Finds globally optimal sequences (better than greedy)
-- Good for tasks with clear objectives (translation)
-
-CONS:
-- Computationally expensive
-- Can produce generic/bland text
-- Not great for open-ended generation
-
-BEAM WIDTH:
-- Small (k=1): Greedy decoding
-- Medium (k=5-10): Good balance
-- Large (k=50+): Near-optimal but expensive
+BEAM SEARCH (beam=3):
+  - Track 3 best routes simultaneously
+  - At each intersection, expand all 3
+  - Keep the 3 best new routes
+  - Continue until destination
 
 VISUALIZATION:
-  Step 1: ["The cat", "A cat", "The dog"]  (beam=3)
-  Step 2: ["The cat sat", "The cat ran", "A cat sat", ...]
-          Keep top 3: ["The cat sat", "A cat sat", "The dog ran"]
-  Step 3: Continue...
-""")
+==============
+
+Step 1: Generate initial candidates
+  ["The cat", "A cat", "The dog"]  ← beam=3
+
+Step 2: Expand each candidate
+  From "The cat": ["The cat sat", "The cat ran", "The cat slept"]
+  From "A cat": ["A cat sat", "A cat ran", "A cat slept"]
+  From "The dog": ["The dog ran", "The dog barked", "The dog ate"]
+  
+  All 9 candidates scored!
+  Keep top 3: ["The cat sat", "A cat sat", "The cat ran"]
+
+Step 3: Continue from these 3...
+
+PROS OF BEAM SEARCH:
+====================
+✅ Finds globally optimal sequences
+✅ Better than greedy for translation
+✅ Explores multiple possibilities
+
+CONS OF BEAM SEARCH:
+====================
+❌ Computationally expensive (kx more work)
+❌ Can produce generic/bland text
+❌ Not great for open-ended generation
+
+BEAM WIDTH TRADEOFF:
+====================
+- beam=1: Greedy decoding (fast, myopic)
+- beam=3-5: Good balance
+- beam=10-20: Near-optimal but expensive
+- beam=50+: Usually overkill
+
+WHEN TO USE:
+============
+✅ Translation (clear "correct" answer)
+✅ Summarization (optimize for ROUGE score)
+✅ Tasks with evaluation metrics
+
+❌ Creative writing (too rigid)
+❌ Chat (produces generic responses)
+❌ Open-ended generation
+=============================================================================""")
 
 print("\n--- Beam Search Conceptual Example ---")
+print("="*50)
+print("""
+SCENARIO: Generating "The cat ___ ___" with beam=3
+
+Watch how beam search explores multiple paths!
+""")
 
 print("""
-Imagine generating "The cat ___ ___":
+📍 START: Empty sequence
 
-Greedy:
-  "The" → "cat" → "sat" → "on" = "The cat sat on"
+STEP 1: First word candidates
+   1. "The" (score: 0.95)
+   2. "A" (score: 0.85)
+   3. "My" (score: 0.75)
+   Keep all 3 (beam=3)
 
-Beam Search (beam=3):
-  Step 1 candidates: ["The cat", "A cat", "The dog"]
-  Step 2 candidates: ["The cat sat", "The cat ran", "A cat sat", 
-                      "A cat slept", "The dog ran", "The dog barked"]
-  Keep top 3: ["The cat sat", "A cat sat", "The cat ran"]
-  Step 3: Continue from these 3...
+STEP 2: Expand each, score combinations
+   From "The":
+     → "The cat" (0.95 × 0.90 = 0.855) ← Best!
+     → "The dog" (0.95 × 0.70 = 0.665)
+     → "The bird" (0.95 × 0.40 = 0.380)
+   
+   From "A":
+     → "A cat" (0.85 × 0.80 = 0.680)
+     → "A dog" (0.85 × 0.60 = 0.510)
+   
+   From "My":
+     → "My cat" (0.75 × 0.75 = 0.562)
+   
+   Keep top 3:
+   1. "The cat" (0.855) ←
+   2. "A cat" (0.680) ←
+   3. "The dog" (0.665) ←
 
-Beam search can find better sequences because it explores
-multiple paths simultaneously!
-""")
+STEP 3: Expand these 3, keep top 3...
+   → "The cat sat" (best so far!)
+   → "A cat sat" 
+   → "The cat ran"
+
+RESULT: Beam search found "The cat sat" 
+        (which greedy also would have found)
+        BUT it explored alternatives!
+=============================================================================""")
 
 # =============================================================================
 # STEP 8: Complete Generation Function
@@ -502,6 +899,25 @@ def generate_text(model, prompt_tokens, max_length=50,
                   strategy="top_p", **kwargs):
     """
     Generate text using various strategies.
+    
+    REAL-WORLD EXAMPLE: Ice Cream Customization
+    ===========================================
+    
+    model = Ice cream machine
+    prompt_tokens = Your starting flavor
+    max_length = How many scoops
+    strategy = How you choose flavors
+    
+    OPTIONS:
+    - "greedy": Always get the most popular flavor
+    - "sample": Random flavor each time
+    - "top_k": Choose from top 40 flavors
+    - "top_p": Choose from flavors that make up 90% of orders
+    
+    temperature = How adventurous you feel
+    - Low (0.2): Stick to classics
+    - Normal (1.0): Usual preferences
+    - High (2.0): Try anything!
     
     Args:
         model: Model with forward() method
@@ -541,28 +957,34 @@ def generate_text(model, prompt_tokens, max_length=50,
     return np.array(tokens)
 
 print("\n--- Generation Strategy Comparison ---")
+print("="*50)
+print("""
+SCENARIO: Different strategies generating from same prompt
+
+Watch how each strategy produces different outputs!
+""")
 
 print("""
-Let's compare how different strategies would generate text:
+📝 Prompt: "The quick brown fox"
 
-(Using simulated model outputs)
-
-Prompt: "The quick brown fox"
+📊 Strategy Comparison:
 """)
 
 # Simulate different generation outputs
 strategies = {
-    "Greedy (T=1.0)": "jumps over the lazy dog. The cat sat on the mat.",
-    "Sample (T=1.0)": "runs through the forest and sleeps under a tree.",
-    "Top-k (k=40)": "jumps over the lazy dog and runs away quickly.",
-    "Top-p (p=0.9)": "jumps over the lazy dog. Then it sleeps.",
-    "Low Temp (T=0.5)": "jumps over the lazy dog. The end of story.",
-    "High Temp (T=1.5)": "dances on clouds while singing to the moon!",
+    "🎯 Greedy (T=1.0)": "jumps over the lazy dog. The cat sat on the mat.",
+    "🎲 Sample (T=1.0)": "runs through the forest and sleeps under a tree.",
+    "📦 Top-k (k=40)": "jumps over the lazy dog and runs away quickly.",
+    "🌰 Top-p (p=0.9)": "jumps over the lazy dog. Then it sleeps.",
+    "🥶 Low Temp (T=0.5)": "jumps over the lazy dog. The end of story.",
+    "🔥 High Temp (T=1.5)": "dances on clouds while singing to the moon!",
 }
 
 for strategy, output in strategies.items():
-    print(f"\n{strategy}:")
-    print(f"  The quick brown fox {output}")
+    emoji = strategy.split()[0]
+    name = strategy.split()[1]
+    print(f"\n{emoji} {name}:")
+    print(f"   The quick brown fox {output}")
 
 # =============================================================================
 # STEP 9: Summary and Recommendations
@@ -573,43 +995,70 @@ print("STEP 9: Strategy Recommendations")
 print("="*70)
 
 print("""
-WHEN TO USE EACH STRATEGY:
+REAL-WORLD GUIDE: Choosing the Right Strategy
+==============================================
 
-1. GREEDY DECODING:
-   - Factual Q&A
-   - Code generation
-   - Translation (with beam search)
-   - When you need deterministic output
+Think of generation strategies like cooking styles:
 
-2. SAMPLING (with temperature):
-   - Creative writing
-   - Story generation
-   - Brainstorming
-   - When you want variety
+📐 GREEDY = Follow Recipe Exactly
+   Best for: Baking (precision matters)
+   Use when: Code generation, factual Q&A, math
+   Avoid when: Creative writing, chat, stories
+   
+   Example: "2+2=" → "4" (always, no variation needed)
 
-3. TOP-K SAMPLING:
-   - General purpose
-   - Chat responses
-   - Good default choice
-   - Recommended: k=40-50
+🎲 SAMPLING = Improvise Cooking
+   Best for: Experimental cuisine
+   Use when: Brainstorming, poetry, unique content
+   Avoid when: Consistency needed, factual accuracy
+   
+   Example: "Write a poem about" → Different each time!
 
-4. TOP-P SAMPLING:
-   - High-quality creative text
-   - When you want adaptive selection
-   - Recommended: p=0.9-0.95
+📦 TOP-K = Choose from Top Recipes
+   Best for: Everyday cooking
+   Use when: Chat, general writing, balanced output
+   Avoid when: Need maximum creativity or precision
+   
+   Example: "The weather today is" → Coherent but varied
 
-5. BEAM SEARCH:
-   - Translation
-   - Summarization
-   - Tasks with clear evaluation metrics
-   - Not recommended for chat
+🌰 TOP-P = Adapt to Ingredients Available
+   Best for: Chef's choice menu
+   Use when: High-quality creative, adaptive generation
+   Avoid when: Need deterministic output
+   
+   Example: "Once upon a time" → Adapts to context
 
-POPULAR COMBINATIONS:
-- GPT-3 default: Top-p (p=0.9-0.95) + Temperature (T=0.7-1.0)
-- Creative writing: Top-p (p=0.9) + Temperature (T=0.8-1.2)
-- Code generation: Greedy or low temperature (T=0.2-0.5)
-- Chat: Top-k (k=40) + Temperature (T=0.7-0.9)
-""")
+🔍 BEAM SEARCH = Test All Recipe Variations
+   Best for: Competition cooking
+   Use when: Translation, summarization, optimization
+   Avoid when: Chat, creative writing (too rigid)
+   
+   Example: Translate "Hello" to French → "Bonjour" (optimal)
+
+POPULAR PRESETS:
+================
+
+🤖 GPT-3 Default:
+   Top-p (p=0.9-0.95) + Temperature (T=0.7-1.0)
+   → Good for most tasks
+
+✍️ Creative Writing:
+   Top-p (p=0.9) + Temperature (T=0.8-1.2)
+   → Balanced creativity and coherence
+
+💻 Code Generation:
+   Greedy or Low Temperature (T=0.2-0.5)
+   → Precision is critical
+
+💬 Chat/Conversation:
+   Top-k (k=40-50) + Temperature (T=0.7-0.9)
+   → Natural, engaging responses
+
+📚 Summarization:
+   Beam Search (beam=4-6) or Top-p (p=0.95)
+   → Capture key information
+
+=============================================================================""")
 
 # =============================================================================
 # SUMMARY
@@ -621,27 +1070,56 @@ print("="*70)
 
 print("""
 GENERATION PROCESS:
-1. Tokenize prompt
-2. Model predicts next token probabilities
-3. Apply strategy to select next token
-4. Append and repeat
+===================
+1. Tokenize prompt → Convert text to numbers
+2. Model forward pass → Get logits
+3. Apply temperature → Adjust confidence
+4. Softmax → Convert to probabilities
+5. Apply strategy → Select next token
+6. Append → Add to sequence
+7. Repeat → Until done!
 
-STRATEGIES:
-┌─────────────┬──────────────┬───────────────┬─────────────┐
-│ Strategy    │ Pros         │ Cons          │ Best For    │
-├─────────────┼──────────────┼───────────────┼─────────────┤
-│ Greedy      │ Fast, simple │ Repetitive    │ Factual     │
-│ Sample      │ Diverse      │ Incoherent    │ Creative    │
-│ Top-k       │ Controlled   │ Fixed k       │ General     │
-│ Top-p       │ Adaptive     │ Complex       │ Quality     │
-│ Beam Search │ Optimal      │ Expensive     │ Translation │
-└─────────────┴──────────────┴───────────────┴─────────────┘
+STRATEGY COMPARISON TABLE:
+==========================
+┌─────────────┬──────────────┬───────────────┬─────────────────┐
+│ Strategy    │ Pros         │ Cons          │ Best For        │
+├─────────────┼──────────────┼───────────────┼─────────────────┤
+│ Greedy      │ Fast, simple │ Repetitive    │ Factual, code   │
+│ Sample      │ Diverse      │ Incoherent    │ Creative        │
+│ Top-k       │ Controlled   │ Fixed k       │ General purpose │
+│ Top-p       │ Adaptive     │ Complex       │ Quality text    │
+│ Beam Search │ Optimal      │ Expensive     │ Translation     │
+└─────────────┴──────────────┴───────────────┴─────────────────┘
 
-PARAMETERS:
-- Temperature: Controls randomness (0.5-2.0 typical)
-- Top-k: Number of candidates (40-100 typical)
-- Top-p: Cumulative probability (0.9-0.95 typical)
-- Max length: Generation limit
+PARAMETER GUIDE:
+================
+
+Temperature (T):
+  0.1-0.3 → Very focused, almost greedy
+  0.5-0.7 → Slightly creative
+  0.8-1.0 → Balanced (default)
+  1.2-1.5 → Creative
+  1.5-2.0 → Wild, unpredictable
+
+Top-k (k):
+  1 → Greedy decoding
+  5-10 → Very focused
+  40-50 → Good balance (recommended)
+  100+ → Very diverse
+
+Top-p (p):
+  0.5-0.75 → Very focused
+  0.8-0.9 → Balanced (recommended)
+  0.9-0.95 → Creative
+  0.95-0.99 → Almost full sampling
+
+KEY INSIGHTS:
+=============
+1. No single "best" strategy - depends on task!
+2. Temperature affects ALL strategies
+3. Top-p is more adaptive than top-k
+4. Greedy is deterministic, others aren't
+5. Beam search is for optimization, not creativity
 
 NEXT: Build a complete working mini GPT model!
 =============================================================================""")
@@ -655,31 +1133,58 @@ print("EXERCISE: Experiment with Generation")
 print("="*70)
 
 print("""
-Try these:
+REAL-WORLD EXPERIMENTS:
+=======================
 
-1. Compare strategies:
+1. COMPARE STRATEGIES:
    Run the same prompt with different strategies
-   Which produces the best output?
+   
+   Prompt: "Once upon a time"
+   - Greedy: Most likely continuation
+   - Sample: Unexpected direction
+   - Top-p: Balanced creative
+   
+   Question: Which output do you prefer?
 
-2. Tune temperature:
+2. TEMPERATURE SWEEP:
    Try T = 0.2, 0.5, 0.8, 1.0, 1.5, 2.0
-   How does output quality change?
+   
+   Prompt: "The meaning of life is"
+   
+   Question: How does output change?
+   Expectation: Low = confident, High = varied
 
-3. Top-k comparison:
+3. TOP-K COMPARISON:
    Try k = 5, 10, 40, 100
-   Find the sweet spot!
+   
+   Question: What's the sweet spot?
+   Expectation: k=40-50 is usually good
 
-4. Top-p comparison:
+4. TOP-P COMPARISON:
    Try p = 0.5, 0.75, 0.9, 0.95, 0.99
-   How does nucleus size affect output?
+   
+   Question: How does nucleus size affect output?
+   Expectation: Higher p = more diverse
 
-5. Combined:
-   Try top-p + temperature together!
+5. COMBINED TUNING:
+   Try top-p (p=0.9) + temperature (T=0.8)
+   
+   Question: Better than either alone?
+   Expectation: Often yes! Best of both worlds.
 
-Key Takeaway:
-- Generation strategy affects output quality significantly
-- No single best strategy - depends on use case
-- Temperature, top-k, and top-p are key parameters
+6. VISUALIZE DISTRIBUTIONS:
+   Plot probability distributions at different temps
+   
+   Question: How does shape change?
+   Expectation: Low = peaky, High = flat
+
+KEY TAKEAWAY:
+=============
+- Generation strategy dramatically affects output
+- Temperature is the "creativity knob"
+- Top-p adapts to model confidence
+- No single best setting - experiment!
+- Different tasks need different strategies
 
 Next: 09_mini_gpt.py - Complete working mini GPT!
 =============================================================================""")
