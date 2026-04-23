@@ -677,11 +677,18 @@ We'll use a simulated model to generate continuations.
 class TextGenerator:
     """Simple text generator with multiple decoding strategies."""
     
-    def __init__(self, vocab, word_to_idx, idx_to_word):
-        self.vocab = vocab
+    def __init__(self, vocab_size, word_to_idx, idx_to_word):
+        """
+        Initialize text generator.
+        
+        Args:
+            vocab_size: Number of tokens in vocabulary (int)
+            word_to_idx: Mapping from words to token IDs
+            idx_to_word: Mapping from token IDs to words
+        """
+        self.vocab_size = vocab_size
         self.word_to_idx = word_to_idx
         self.idx_to_word = idx_to_word
-        self.vocab_size = len(vocab)
     
     def get_simulated_probs(self, context, seed=42):
         """

@@ -437,7 +437,7 @@ V_head = np.random.randn(seq_len, head_dim)
 print(f"Head input shapes:")
 print(f"  Q: {Q_head.shape}")
 print(f"  K: {K_head.shape}")
-print(f"  V: {K_head.shape}")
+print(f"  V: {V_head.shape}")
 
 # Create causal mask
 mask = create_causal_mask(seq_len)

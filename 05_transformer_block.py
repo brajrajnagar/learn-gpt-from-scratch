@@ -414,7 +414,9 @@ class TransformerBlockPostLN:
     def forward(self, x):
         """Forward pass with Post-LayerNorm."""
         # Attention sublayer
-        attn_out = self.attention.forward(x, use_causal_mask=True)
+        # MultiHeadAttention.forward() returns (output, attention_weights)
+        attn_result = self.attention.forward(x, use_causal_mask=True)
+        attn_out = attn_result[0] if isinstance(attn_result, tuple) else attn_result
         x = x + attn_out
         x = self.ln1.forward(x)  # Post-LayerNorm
 
@@ -442,14 +444,14 @@ class TransformerBlockStack:
 
     Deeper layers capture more abstract relationships.
 
-    GPT-2 Configurations:
-    ─────────────────────
-    | Config | d_model | n_heads | d_ff | n_blocks |
-    |--------|---------|---------|------|----------|
-    | Small  |   768   |   12    | 3072 |    12    |
-    | Medium |   768   |   12    | 3072 |    24    |
-    | Large  |  1024   |   16    | 4096 |    36    |
-    | XL     |  16384  |  100    | 65536|    48    |
+    GPT-2 Configurations (CORRECTED):
+    ─────────────────────────────────
+    | Config | d_model | n_heads | d_ff | n_blocks | params |
+    |--------|---------|---------|------|----------|--------|
+    | Small  |   768   |   12    | 3072 |    12    |  124M  |
+    | Medium |  1024   |   16    | 4096 |    24    |  350M  |
+    | Large  |  1280   |   20    | 5120 |    36    |  774M  |
+    | XL     |  1600   |   25    | 6400 |    48    | 1558M  |
     """
 
     def __init__(self, d_model, n_heads, d_ff, n_blocks):
@@ -676,10 +678,10 @@ def show_transformer_parameters():
         print(f"{name:<10} {d_model:<10} {n_heads:<8} {d_ff:<10} {n_blocks:<8} {total_params/1e6:.2f}M params")
 
     print()
-    print("GPT-2 Small:  12 blocks, d_model=768 → ~124M params")
-    print("GPT-2 Medium: 24 blocks, d_model=768 → ~248M params")
-    print("GPT-2 Large:  36 blocks, d_model=1024 → ~762M params")
-    print("GPT-2 XL:     48 blocks, d_model=16384 → ~1.5B params")
+    print("GPT-2 Small:  12 blocks, d_model=768, n_heads=12 → ~124M params")
+    print("GPT-2 Medium: 24 blocks, d_model=1024, n_heads=16 → ~350M params")
+    print("GPT-2 Large:  36 blocks, d_model=1280, n_heads=20 → ~774M params")
+    print("GPT-2 XL:     48 blocks, d_model=1600, n_heads=25 → ~1.5B params")
     print()
 
 

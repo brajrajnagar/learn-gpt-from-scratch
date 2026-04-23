@@ -246,7 +246,8 @@ class MiniGPT(nn.Module):
         # Position embeddings (learned)
         self.position_embedding = nn.Embedding(max_seq_len, embed_dim)
         
-        # Transformer blocks
+        # Transformer blocks - NOTE: We need to handle causal masking ourselves
+        # For GPT, we use causal mask in forward() to enable causal attention
         encoder_layers = nn.TransformerEncoderLayer(
             d_model=embed_dim,
             nhead=num_heads,
@@ -273,9 +274,25 @@ class MiniGPT(nn.Module):
         self.position_embedding.weight.data.uniform_(-initrange, initrange)
         self.lm_head.weight.data.uniform_(-initrange, initrange)
     
+    def generate_causal_mask(self, seq_len, device):
+        """
+        Generate causal mask for GPT (prevents attending to future).
+        
+        For PyTorch TransformerEncoder, the mask shape should be (T, T) for 2D
+        or (batch_size, T, T) for 3D.
+        
+        Returns:
+            causal_mask: Boolean mask where True means "attend to this position"
+                        Shape: (seq_len, seq_len)
+        """
+        # Create a triangular mask - lower triangle is 0 (attend), upper is -inf (block)
+        mask = torch.triu(torch.ones(seq_len, seq_len, device=device), diagonal=1)
+        mask = mask.masked_fill(mask == 1, float('-inf'))
+        return mask  # (seq_len, seq_len)
+    
     def forward(self, idx, targets=None):
         """
-        Forward pass.
+        Forward pass with causal masking for GPT.
         
         Args:
             idx: Input token IDs, shape (batch_size, seq_len)
@@ -286,20 +303,26 @@ class MiniGPT(nn.Module):
             loss: Optional loss value if targets provided
         """
         B, T = idx.shape  # Batch size, sequence length
+        device = idx.device
         
         # Get token embeddings
         tok_emb = self.token_embedding(idx)  # (B, T, embed_dim)
         
         # Get position embeddings
-        positions = torch.arange(0, T, dtype=torch.long, device=idx.device)
+        positions = torch.arange(0, T, dtype=torch.long, device=device)
         pos_emb = self.position_embedding(positions)  # (T, embed_dim)
         
         # Combine embeddings
         x = tok_emb + pos_emb  # (B, T, embed_dim)
         x = self.dropout(x)
         
-        # Apply transformer blocks
-        x = self.transformer(x)  # (B, T, embed_dim)
+        # Create causal mask (prevents attending to future tokens)
+        # This is CRUCIAL for GPT - autoregressive language modeling!
+        causal_mask = self.generate_causal_mask(T, device)
+        
+        # Apply transformer blocks with causal mask
+        # is_causal=True tells PyTorch to use causal attention
+        x = self.transformer(x, mask=causal_mask)  # (B, T, embed_dim)
         
         # Final layer norm
         x = self.ln_f(x)

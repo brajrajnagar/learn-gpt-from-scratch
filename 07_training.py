@@ -469,18 +469,19 @@ class SimpleTrainer:
         grad_output = probs.copy()
         grad_output[target] -= 1  # Subtract 1 for correct class
         
-        return {
-            'loss': original_loss,
-            'grad_output': grad_output
-        }
+        # Store gradients
+        gradients['loss'] = original_loss
+        gradients['grad_output'] = grad_output
+        
+        return gradients
     
     def train_step(self, inputs, targets):
         """
         Single training step on a batch.
         
         Args:
-            inputs: Input token sequences
-            targets: Target tokens
+            inputs: Input token sequences, shape (num_samples, seq_len)
+            targets: Target tokens, shape (num_samples,)
         
         Returns:
             avg_loss: Average loss for this batch
@@ -492,9 +493,12 @@ class SimpleTrainer:
             inp = inputs[i]
             tgt = targets[i]
             
-            # Forward pass
+            # Forward pass - returns logits of shape (vocab_size,)
             logits = self.model.forward(inp)
-            probs = softmax(logits[-1])
+            
+            # logits is already 1D (vocab_size,), no need for logits[-1]
+            # The model returns scores for all vocabulary items
+            probs = softmax(logits)
             
             # Compute loss
             loss = cross_entropy_loss(probs, tgt)
@@ -662,14 +666,24 @@ class MiniGPT:
         self.W_out = np.random.randn(embedding_dim, vocab_size) * 0.1
     
     def forward(self, token_ids):
+        """
+        Forward pass returning logits for next token prediction.
+        
+        Args:
+            token_ids: Input token IDs, shape (seq_len,)
+        
+        Returns:
+            logits: Raw scores for each vocabulary item, shape (vocab_size,)
+                    This is a 1D array of scores for the LAST position
+        """
         # Embed tokens
-        x = self.W_embed[token_ids]
+        x = self.W_embed[token_ids]  # (seq_len, embedding_dim)
         
         # Simple mean pooling (instead of transformer)
-        x = np.mean(x, axis=0)
+        x = np.mean(x, axis=0)  # (embedding_dim,)
         
         # Project to vocabulary
-        logits = np.dot(x, self.W_out)
+        logits = np.dot(x, self.W_out)  # (vocab_size,)
         
         return logits
 

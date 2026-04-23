@@ -198,12 +198,12 @@ vocab_size={config.vocab_size}
 
 d_model={config.d_model}
   → Dimension of embeddings (the "width" of the model)
-  → GPT-2 uses 768 (small) to 16384 (XL)
+  → GPT-2 uses 768 (small) to 1600 (XL) [CORRECTED]
   → We use 64 for demonstration
 
 n_heads={config.n_heads}
   → Number of attention heads (specialists per layer)
-  → GPT-2 uses 12 (small) to 100 (XL)
+  → GPT-2 uses 12 (small) to 25 (XL) [CORRECTED]
   → We use 4 for demonstration
 
 n_blocks={config.n_blocks}
