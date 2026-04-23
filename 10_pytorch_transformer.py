@@ -101,8 +101,9 @@ print(f"\nOutput shape: {attn_output.shape}")
 print(f"  → Same shape as input (residual connection ready!)")
 
 print(f"\nAttention weights shape: {attn_weights.shape}")
-print(f"  → (batch={batch_size}, heads={num_heads}, seq_len={seq_len}, seq_len={seq_len})")
-print(f"  → Each head sees 5x5 attention matrix")
+print(f"  → (seq_len={seq_len}, seq_len={seq_len})")
+print(f"  → PyTorch returns averaged attention weights across heads (not per-head)")
+print(f"  → For per-head weights, use need_weights=True and access differently")
 
 print("\n" + "-"*50)
 print("COMPARISON: NumPy vs PyTorch")

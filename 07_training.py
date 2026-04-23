@@ -454,7 +454,7 @@ class SimpleTrainer:
         """
         # Get original loss
         logits = self.model.forward(token_ids)
-        probs = softmax(logits[-1])
+        probs = softmax(logits)
         original_loss = cross_entropy_loss(probs, target)
         
         # Compute gradient for output weights (simplified)
