@@ -1,7 +1,6 @@
 """
-=============================================================================
-LESSON 4: Multi-Head Attention - Multiple Experts for Better Prediction
-=============================================================================
+GPT from Scratch - Lesson 4: Multi-Head Attention
+==================================================
 
 Continuing our text predictor from Lessons 1-3:
 - Lesson 1: We built a neural network to predict next word
@@ -12,11 +11,28 @@ Continuing our text predictor from Lessons 1-3:
 EXAMPLE FLOW: "The cat sat on the ___" → Multiple experts analyze → predict "mat"
 
 NOTE: This lesson uses PyTorch to show LEARNABLE parameters (nn.Linear)
+
+MATRIX DIMENSIONS WE'LL COVER:
+==============================
+- Input embeddings:  (batch, seq_len, d_model)
+- Q, K, V:           (batch, seq_len, d_model) each
+- Split heads:       (batch, n_heads, seq_len, d_k) where d_k = d_model / n_heads
+- Attention scores:  (batch, n_heads, seq_len, seq_len)
+- Output per head:   (batch, n_heads, seq_len, d_k)
+- Combined output:   (batch, seq_len, d_model)
+
+LEARNABLE PARAMETERS:
+=====================
+- W_q: nn.Linear(d_model, d_model) - Query projection, weight (d_model, d_model)
+- W_k: nn.Linear(d_model, d_model) - Key projection, weight (d_model, d_model)
+- W_v: nn.Linear(d_model, d_model) - Value projection, weight (d_model, d_model)
+- W_o: nn.Linear(d_model, d_model) - Output projection, weight (d_model, d_model)
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 
 # =============================================================================
 # RECAP: Our Text Predictor So Far
@@ -67,6 +83,7 @@ WHAT WE'LL BUILD:
 4. Combine all head outputs
 5. Final projection for prediction
 =============================================================================""")
+
 
 # =============================================================================
 # STEP 1: Why Multi-Head? The Limitation of Single Attention
@@ -128,6 +145,7 @@ COMBINED: Rich, multi-dimensional understanding!
 
 Let's implement this!
 """)
+
 
 # =============================================================================
 # STEP 2: Multi-Head Architecture - Splitting Work Among Heads
@@ -191,11 +209,37 @@ where head_i = Attention(Q·W_i^Q, K·W_i^K, V·W_i^V)
 Let's implement this step by step!
 """)
 
+
 def create_causal_mask(seq_len):
-    """Create causal mask - prevents seeing future tokens."""
-    # Create mask with shape (1, seq_len, seq_len) for proper indexing
+    """
+    Create causal mask - prevents seeing future tokens.
+    
+    MATRIX DIMENSIONS:
+    ==================
+    Input:  seq_len (scalar)
+    Output: (1, seq_len, seq_len) for broadcasting with attention scores
+    
+    Visual for seq_len=4:
+    ```
+    [[ 0,  -inf, -inf, -inf],   ← position 0 sees only itself
+     [ 0,   0,   -inf, -inf],   ← position 1 sees 0,1
+     [ 0,   0,    0,   -inf],   ← position 2 sees 0,1,2
+     [ 0,   0,    0,    0  ]]   ← position 3 sees all
+    ```
+    
+    After adding to scores and softmax:
+    - Positions with -inf become 0 (no attention)
+    - Positions with 0 get normal softmax values
+    
+    Returns:
+        Mask tensor, shape (1, seq_len, seq_len)
+    """
+    # Create mask with shape (seq_len, seq_len)
+    # 1s above diagonal, 0s on and below
     mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
-    return mask.unsqueeze(0)  # Add batch dimension: (1, seq_len, seq_len)
+    # Add batch dimension for broadcasting: (1, seq_len, seq_len)
+    return mask.unsqueeze(0)
+
 
 print("\n--- Multi-Head Setup: Our Text Predictor ---")
 print("-"*50)
@@ -211,6 +255,7 @@ print(f"  Num heads: {num_heads}")
 print(f"  Head dim: {head_dim} (each head processes {head_dim} features)")
 
 print(f"\nThis is like having {num_heads} experts, each analyzing {head_dim} features!")
+
 
 # =============================================================================
 # STEP 3: Splitting Embeddings Among Heads
@@ -248,6 +293,7 @@ After split_heads:
 Now each head has its own Q, K, V to process!
 """)
 
+
 def split_heads(x, num_heads, head_dim):
     """
     Split embeddings among heads.
@@ -259,10 +305,21 @@ def split_heads(x, num_heads, head_dim):
       
     PROCESS:
       1. Reshape: (batch, 5, 64) → (batch, 5, 4 heads, 16 features per head)
+         Splits the last dimension (64) into (4 heads × 16 features)
+      
       2. Transpose: (batch, 5, 4, 16) → (batch, 4, 5, 16)
+         Moves head dimension to position 1 for efficient batch processing
       
     OUTPUT: Each head has its own data to process
       Shape: (batch, 4 heads, 5 tokens, 16 features)
+      
+    MATRIX OPERATION:
+    =================
+    x.view(batch, seq_len, num_heads, head_dim)
+      → Reshapes last dimension: 64 → (4, 16)
+    
+    x.transpose(1, 2)
+      → Swaps dimensions 1 and 2: (batch, 4, seq_len, 16)
       
     Args:
         x: Input tensor, shape (batch, seq_len, embedding_dim)
@@ -275,11 +332,14 @@ def split_heads(x, num_heads, head_dim):
     batch, seq_len, _ = x.shape
     
     # Reshape: (batch, seq_len, embedding_dim) → (batch, seq_len, num_heads, head_dim)
+    # Example: (2, 10, 64) → (2, 10, 4, 16)
     x = x.view(batch, seq_len, num_heads, head_dim)
     
     # Transpose: (batch, seq_len, num_heads, head_dim) → (batch, num_heads, seq_len, head_dim)
+    # Example: (2, 10, 4, 16) → (2, 4, 10, 16)
     # Now we can index by head: x[:, head_idx] gives that head's data
     return x.transpose(1, 2)
+
 
 def combine_heads(x, num_heads, embedding_dim):
     """
@@ -292,15 +352,27 @@ def combine_heads(x, num_heads, embedding_dim):
       
     PROCESS:
       1. Transpose: (batch, 4, 5, 16) → (batch, 5, 4, 16)
+         Moves head dimension back to position 2
+      
       2. Reshape: (batch, 5, 4, 16) → (batch, 5, 64)
+         Concatenates all heads: 4 × 16 = 64
       
     OUTPUT: Combined representation
       Shape: (batch, 5 tokens, 64 features)
       
+    MATRIX OPERATION:
+    =================
+    x.transpose(1, 2)
+      → Swaps dimensions 1 and 2: (batch, seq_len, num_heads, head_dim)
+    
+    x.contiguous().view(batch, seq_len, embedding_dim)
+      → Reshapes last two dims: (num_heads × head_dim) → embedding_dim
+      → Example: (2, 10, 4, 16) → (2, 10, 64)
+      
     Args:
         x: Input tensor, shape (batch, num_heads, seq_len, head_dim)
         num_heads: Number of heads
-        embedding_dim: Total features after combining
+        embedding_dim: Total features after combining (num_heads × head_dim)
     
     Returns:
         Combined tensor, shape (batch, seq_len, embedding_dim)
@@ -308,10 +380,14 @@ def combine_heads(x, num_heads, embedding_dim):
     batch, _, seq_len, _ = x.shape
     
     # Transpose: (batch, num_heads, seq_len, head_dim) → (batch, seq_len, num_heads, head_dim)
+    # Example: (2, 4, 10, 16) → (2, 10, 4, 16)
     x = x.transpose(1, 2)
     
     # Reshape: (batch, seq_len, num_heads, head_dim) → (batch, seq_len, embedding_dim)
+    # Example: (2, 10, 4, 16) → (2, 10, 64)
+    # Concatenates: num_heads × head_dim = 4 × 16 = 64
     return x.contiguous().view(batch, seq_len, embedding_dim)
+
 
 print("\n--- Demo: Splitting and Combining ---")
 print("-"*50)
@@ -348,6 +424,7 @@ print(f"  → Back to original shape!")
 
 print(f"\n✓ Split and combine works correctly!")
 
+
 # =============================================================================
 # STEP 4: Single Head Attention (What Each Head Does)
 # =============================================================================
@@ -379,6 +456,7 @@ KEY POINT: Each head has DIFFERENT weights!
 This means each head computes DIFFERENT attention!
 """)
 
+
 def scaled_dot_product_attention(Q, K, V, mask=None):
     """
     Scaled dot-product attention for a single head.
@@ -392,34 +470,87 @@ def scaled_dot_product_attention(Q, K, V, mask=None):
       4. Matches queries to keys (attention scores)
       5. Gathers information from attended words
     
+    MATRIX DIMENSIONS:
+    ==================
+    Inputs:
+      Q: (batch, seq_len, head_dim)  - Query vectors
+      K: (batch, seq_len, head_dim)  - Key vectors
+      V: (batch, seq_len, head_dim)  - Value vectors
+    
+    Intermediate:
+      scores: (batch, seq_len, seq_len)  - Raw attention scores
+      attention_weights: (batch, seq_len, seq_len)  - Normalized weights
+    
+    Output:
+      output: (batch, seq_len, head_dim)  - Contextualized representations
+      attention_weights: (batch, seq_len, seq_len)  - For visualization
+    
+    MATRIX OPERATIONS:
+    ==================
+    Step 1 - Scaled Dot Product:
+      Q @ K^T / sqrt(head_dim)
+      (batch, seq_len, head_dim) @ (batch, head_dim, seq_len) → (batch, seq_len, seq_len)
+      
+      For each query position, compute similarity with all key positions.
+      Higher score = more similar = more attention.
+      Dividing by sqrt(head_dim) prevents large values → better gradients.
+    
+    Step 2 - Softmax:
+      softmax(scores, dim=-1)
+      (batch, seq_len, seq_len) → (batch, seq_len, seq_len)
+      
+      Converts scores to probabilities. Each row sums to 1.0.
+      attention_weights[i, j] = "how much position i attends to position j"
+    
+    Step 3 - Weighted Sum:
+      attention_weights @ V
+      (batch, seq_len, seq_len) @ (batch, seq_len, head_dim) → (batch, seq_len, head_dim)
+      
+      For each query position, compute weighted sum of all value vectors.
+      Positions with higher attention weights contribute more.
+    
     Args:
         Q: Query, shape (batch, seq_len, head_dim)
         K: Key, shape (batch, seq_len, head_dim)
         V: Value, shape (batch, seq_len, head_dim)
-        mask: Optional causal mask, shape (seq_len, seq_len)
+        mask: Optional causal mask, shape (1, seq_len, seq_len)
     
     Returns:
         attention_output: Shape (batch, seq_len, head_dim)
         attention_weights: Shape (batch, seq_len, seq_len)
     """
-    d_k = K.shape[-1]
+    d_k = K.shape[-1]  # head_dim
     
     # Step 1: Compute attention scores
-    # Q: (B, T, d_k), K: (B, T, d_k) → scores: (B, T, T)
+    # Q: (batch, seq_len, head_dim)
+    # K^T: (batch, head_dim, seq_len) [transposed]
+    # scores: (batch, seq_len, seq_len)
+    # For each (query_pos, key_pos) pair, compute dot product similarity
     scores = torch.matmul(Q, K.transpose(-2, -1)) / (d_k ** 0.5)
     
     # Step 2: Apply mask (if provided)
+    # mask: (1, seq_len, seq_len) or (batch, seq_len, seq_len)
+    # After masking: masked positions have very negative values (-inf)
+    # After softmax: these become ~0 (no attention)
     if mask is not None:
         scores = scores + mask
     
     # Step 3: Softmax to get attention weights
+    # Each row (query position) now has a probability distribution over all key positions
+    # attention_weights[i, j] = "how much position i attends to position j"
     weights = F.softmax(scores, dim=-1)
+    # weights shape: (batch, seq_len, seq_len)
+    # Property: weights.sum(dim=-1) = 1.0 for all query positions
     
     # Step 4: Weighted sum of values
-    # weights: (B, T, T), V: (B, T, d_k) → output: (B, T, d_k)
+    # weights: (batch, seq_len, seq_len)
+    # V: (batch, seq_len, head_dim)
+    # output: (batch, seq_len, head_dim)
+    # output[i] = sum_j(weights[i,j] * V[j])
     output = torch.matmul(weights, V)
     
     return output, weights
+
 
 print("\n--- Demo: Single Head Attention ---")
 print("-"*50)
@@ -447,6 +578,7 @@ print(f"Attention weights shape: {weights.shape}")
 print(f"\nAttention weights (who this head attends to):")
 print(f"  Each row sums to 1.0: {weights.sum(dim=-1)}")
 
+
 # =============================================================================
 # STEP 5: Complete Multi-Head Attention
 # =============================================================================
@@ -469,6 +601,7 @@ Multi-head attention combines everything:
 Let's implement the complete layer!
 """)
 
+
 class MultiHeadAttention(nn.Module):
     """
     Complete multi-head attention layer with LEARNABLE parameters.
@@ -486,6 +619,64 @@ class MultiHeadAttention(nn.Module):
     LEARNABLE PARAMETERS:
     - W_q, W_k, W_v: Project input to Q, K, V
     - W_o: Project combined output
+    
+    MATRIX DIMENSIONS THROUGH FORWARD PASS:
+    =======================================
+    
+    INPUT:
+      embeddings: (batch, seq_len, embedding_dim)
+      Example: (2, 10, 64) - 2 sequences, 10 tokens, 64-dim embeddings
+    
+    STEP 1 - LINEAR PROJECTIONS:
+      W_q.weight: (embedding_dim, embedding_dim) = (64, 64)
+      W_k.weight: (embedding_dim, embedding_dim) = (64, 64)
+      W_v.weight: (embedding_dim, embedding_dim) = (64, 64)
+      
+      Q = W_q(x): (batch, seq_len, embedding_dim)
+      K = W_k(x): (batch, seq_len, embedding_dim)
+      V = W_v(x): (batch, seq_len, embedding_dim)
+    
+    STEP 2 - SPLIT HEADS:
+      Q_heads: (batch, n_heads, seq_len, head_dim)
+      K_heads: (batch, n_heads, seq_len, head_dim)
+      V_heads: (batch, n_heads, seq_len, head_dim)
+      
+      Example: (2, 4, 10, 16) - 2 batches, 4 heads, 10 positions, 16-dim per head
+    
+    STEP 3 - ATTENTION SCORES:
+      scores = Q @ K^T / sqrt(head_dim)
+      Q_heads: (batch, n_heads, seq_len, head_dim)
+      K_heads^T: (batch, n_heads, head_dim, seq_len)
+      scores: (batch, n_heads, seq_len, seq_len)
+      
+      Example: (2, 4, 10, 16) @ (2, 4, 16, 10) → (2, 4, 10, 10)
+    
+    STEP 4 - APPLY MASK:
+      mask: (1, 1, seq_len, seq_len) or (1, seq_len, seq_len)
+      scores + mask: (batch, n_heads, seq_len, seq_len)
+    
+    STEP 5 - SOFTMAX:
+      attn = softmax(scores, dim=-1)
+      attn: (batch, n_heads, seq_len, seq_len)
+    
+    STEP 6 - ATTENTION OUTPUT:
+      output = attn @ V_heads
+      attn: (batch, n_heads, seq_len, seq_len)
+      V_heads: (batch, n_heads, seq_len, head_dim)
+      output: (batch, n_heads, seq_len, head_dim)
+      
+      Example: (2, 4, 10, 10) @ (2, 4, 10, 16) → (2, 4, 10, 16)
+    
+    STEP 7 - COMBINE HEADS:
+      combined: (batch, seq_len, embedding_dim)
+      Reshapes (batch, n_heads, seq_len, head_dim) → (batch, seq_len, n_heads × head_dim)
+      Example: (2, 10, 64)
+    
+    STEP 8 - OUTPUT PROJECTION:
+      output = W_o(combined)
+      combined: (batch, seq_len, embedding_dim)
+      W_o.weight: (embedding_dim, embedding_dim)
+      output: (batch, seq_len, embedding_dim)
     """
     
     def __init__(self, embedding_dim, num_heads):
@@ -497,13 +688,43 @@ class MultiHeadAttention(nn.Module):
             num_heads: Number of attention heads
         
         LEARNABLE PARAMETERS (automatically initialized by PyTorch):
-        - self.W_q = nn.Linear(embedding_dim, embedding_dim)
-        - self.W_k = nn.Linear(embedding_dim, embedding_dim)
-        - self.W_v = nn.Linear(embedding_dim, embedding_dim)
-        - self.W_o = nn.Linear(embedding_dim, embedding_dim)
+        ───────────────────────────────────────────────────────────
+        self.W_q = nn.Linear(embedding_dim, embedding_dim)  # Query projection
+           Weight shape: (embedding_dim, embedding_dim)
+           Bias shape: (embedding_dim,)
+        self.W_k = nn.Linear(embedding_dim, embedding_dim)  # Key projection
+           Weight shape: (embedding_dim, embedding_dim)
+           Bias shape: (embedding_dim,)
+        self.W_v = nn.Linear(embedding_dim, embedding_dim)  # Value projection
+           Weight shape: (embedding_dim, embedding_dim)
+           Bias shape: (embedding_dim,)
+        self.W_o = nn.Linear(embedding_dim, embedding_dim)  # Output projection
+           Weight shape: (embedding_dim, embedding_dim)
+           Bias shape: (embedding_dim,)
         
         These use Xavier/Glorot initialization by default.
         They will be UPDATED via backpropagation during training!
+        
+        WHY head_dim = embedding_dim // num_heads?
+        ──────────────────────────────────────────
+        The MULTI-HEAD attention splits the embedding_dim dimensions ACROSS the heads.
+        
+        Think of it like splitting a deck of cards:
+          Total cards = embedding_dim = 64
+          Players = num_heads = 4
+          Cards per player = head_dim = 64 / 4 = 16
+        
+        Each head operates independently in its own head_dim-dimensional space.
+        Then we concatenate all heads back together: num_heads × head_dim = embedding_dim
+        
+        EXAMPLE with embedding_dim=64, num_heads=4:
+          head_dim = 64 // 4 = 16
+          Head 1: operates in dimensions [0:16]
+          Head 2: operates in dimensions [16:32]
+          Head 3: operates in dimensions [32:48]
+          Head 4: operates in dimensions [48:64]
+        
+        After attention, we concatenate: [head1, head2, head3, head4] → 4×16 = 64
         """
         super().__init__()
         self.embedding_dim = embedding_dim
@@ -522,6 +743,7 @@ class MultiHeadAttention(nn.Module):
         
         # LEARNABLE weight matrices for Q, K, V, O
         # These are nn.Linear layers - PyTorch will initialize and update them!
+        # Weight shape: (embedding_dim, embedding_dim), Bias shape: (embedding_dim,)
         self.W_q = nn.Linear(embedding_dim, embedding_dim)
         self.W_k = nn.Linear(embedding_dim, embedding_dim)
         self.W_v = nn.Linear(embedding_dim, embedding_dim)
@@ -545,11 +767,51 @@ class MultiHeadAttention(nn.Module):
         
         Args:
             embeddings: Input embeddings, shape (batch, seq_len, embedding_dim)
+                        Example: (2, 10, 64) - 2 sequences, 10 tokens, 64-dim embeddings
             use_causal_mask: Whether to apply causal mask
         
         Returns:
             output: Contextualized embeddings, shape (batch, seq_len, embedding_dim)
-            attention_weights: Attention weights per head
+                    Each token now has a representation that incorporates attended context.
+            attention_weights: Attention weights per head, shape (batch, num_heads, seq_len, seq_len)
+                    Shows which positions each head attends to.
+        
+        DIMENSION FLOW THROUGH FORWARD PASS:
+        ====================================
+        
+        1. INPUT:
+           embeddings: (batch, seq_len, embedding_dim) = (2, 10, 64)
+        
+        2. LINEAR PROJECTIONS (LEARNABLE):
+           Q = self.W_q(embeddings): (batch, seq_len, embedding_dim)
+           K = self.W_k(embeddings): (batch, seq_len, embedding_dim)
+           V = self.W_v(embeddings): (batch, seq_len, embedding_dim)
+        
+        3. SPLIT HEADS:
+           Q_heads: (batch, n_heads, seq_len, head_dim) = (2, 4, 10, 16)
+           K_heads: (batch, n_heads, seq_len, head_dim) = (2, 4, 10, 16)
+           V_heads: (batch, n_heads, seq_len, head_dim) = (2, 4, 10, 16)
+        
+        4. ATTENTION SCORES:
+           scores = Q_heads @ K_heads^T / sqrt(head_dim)
+           (2, 4, 10, 16) @ (2, 4, 16, 10) → (2, 4, 10, 10)
+        
+        5. APPLY MASK:
+           mask: (1, seq_len, seq_len) = (1, 10, 10)
+           scores + mask: (2, 4, 10, 10)
+        
+        6. SOFTMAX:
+           attn = softmax(scores, dim=-1): (2, 4, 10, 10)
+        
+        7. ATTENTION OUTPUT:
+           output = attn @ V_heads
+           (2, 4, 10, 10) @ (2, 4, 10, 16) → (2, 4, 10, 16)
+        
+        8. COMBINE HEADS:
+           combined: (batch, seq_len, embedding_dim) = (2, 10, 64)
+        
+        9. OUTPUT PROJECTION (LEARNABLE):
+           output = self.W_o(combined): (2, 10, 64)
         """
         batch, seq_len, _ = embeddings.shape
         
@@ -560,6 +822,9 @@ class MultiHeadAttention(nn.Module):
         print(f"  → batch={batch}, {seq_len} tokens, {self.embedding_dim} features")
         
         # Step 1: Linear projections (LEARNABLE!)
+        # embeddings: (batch, seq_len, embedding_dim)
+        # W_q.weight: (embedding_dim, embedding_dim)
+        # Q: (batch, seq_len, embedding_dim)
         print(f"\n[Step 1] Projecting to Q, K, V (using nn.Linear)...")
         Q = self.W_q(embeddings)  # (batch, seq_len, embedding_dim)
         K = self.W_k(embeddings)  # (batch, seq_len, embedding_dim)
@@ -567,6 +832,7 @@ class MultiHeadAttention(nn.Module):
         print(f"  Q: {Q.shape}, K: {K.shape}, V: {V.shape}")
         
         # Step 2: Split among heads
+        # Each: (batch, seq_len, embedding_dim) → (batch, n_heads, seq_len, head_dim)
         print(f"\n[Step 2] Splitting among {self.num_heads} heads...")
         Q_heads = split_heads(Q, self.num_heads, self.head_dim)
         K_heads = split_heads(K, self.num_heads, self.head_dim)
@@ -583,25 +849,31 @@ class MultiHeadAttention(nn.Module):
             print(f"\n[Step 3] Causal mask applied (no cheating!)")
         
         # Step 4: Compute attention for each head (in parallel!)
+        # Q, K, V: (batch, n_heads, seq_len, head_dim)
         print(f"\n[Step 4] Computing attention for all heads in parallel...")
         head_outputs, attention_weights = scaled_dot_product_attention(
             Q_heads, K_heads, V_heads, mask
         )
-        # head_outputs: (batch, num_heads, seq_len, head_dim)
+        # head_outputs: (batch, n_heads, seq_len, head_dim)
         
         print(f"  Attention computed for all {self.num_heads} heads")
         
         # Step 5: Combine heads
+        # head_outputs: (batch, n_heads, seq_len, head_dim) → (batch, seq_len, embedding_dim)
         print(f"\n[Step 5] Combining head outputs...")
         combined = combine_heads(head_outputs, self.num_heads, self.embedding_dim)
         print(f"  Combined: {combined.shape}")
         
         # Step 6: Output projection (LEARNABLE!)
+        # combined: (batch, seq_len, embedding_dim)
+        # W_o.weight: (embedding_dim, embedding_dim)
+        # output: (batch, seq_len, embedding_dim)
         print(f"\n[Step 6] Final projection (using nn.Linear)...")
         output = self.W_o(combined)  # (batch, seq_len, embedding_dim)
         print(f"  Output: {output.shape}")
         
         return output, attention_weights
+
 
 print("\n" + "="*70)
 print("DEMO: Multi-Head Attention on 'The cat sat on mat'")
@@ -628,6 +900,7 @@ print(f"Output shape: {output.shape}")
 print(f"  → Same as input! Each token transformed")
 print(f"Attention weights shape: {attn_weights.shape}")
 print(f"  → (batch, num_heads, seq_len, seq_len)")
+
 
 # =============================================================================
 # STEP 6: Visualizing Attention Patterns Across Heads
@@ -675,6 +948,7 @@ Each head learns to attend differently!
 Combined, they capture rich patterns!
 """)
 
+
 # =============================================================================
 # SUMMARY: Multi-Head Attention in Our Text Predictor
 # =============================================================================
@@ -695,9 +969,13 @@ WHAT WE BUILT:
 LEARNABLE PARAMETERS:
 =====================
 - W_q = nn.Linear(embedding_dim, embedding_dim) - Query projection
+  Weight shape: (embedding_dim, embedding_dim)
 - W_k = nn.Linear(embedding_dim, embedding_dim) - Key projection
+  Weight shape: (embedding_dim, embedding_dim)
 - W_v = nn.Linear(embedding_dim, embedding_dim) - Value projection
+  Weight shape: (embedding_dim, embedding_dim)
 - W_o = nn.Linear(embedding_dim, embedding_dim) - Output projection
+  Weight shape: (embedding_dim, embedding_dim)
 
 These are initialized by PyTorch and LEARNED during training!
 
@@ -751,6 +1029,7 @@ Together = Complete Transformer Block!
 
 Next: 05_transformer_block.py
 =============================================================================""")
+
 
 print("\n" + "="*70)
 print("EXERCISE: Experiment with Multi-Head Attention")

@@ -24,6 +24,19 @@ GPT vs Transformer:
   - GPT predicts next token (autoregressive)
 
 NOTE: This lesson uses PyTorch to show LEARNABLE parameters (nn.Linear)
+
+MATRIX DIMENSIONS WE'LL COVER:
+==============================
+- Input:             (batch, seq_len, d_model)
+- FFN hidden:        (batch, seq_len, d_ff) where d_ff = 4 × d_model
+- LayerNorm output:  (batch, seq_len, d_model)
+- Transformer Block: (batch, seq_len, d_model) → same shape!
+
+LEARNABLE PARAMETERS:
+=====================
+- FFN: fc1 (d_model, d_ff), fc2 (d_ff, d_model)
+- LayerNorm: weight (d_model,), bias (d_model,)
+- MultiHeadAttention: W_q, W_k, W_v, W_o (each d_model, d_model)
 """
 
 import torch
@@ -62,7 +75,7 @@ class FeedForwardNetwork(nn.Module):
 
     ARCHITECTURE:
     ─────────────
-    Input:  (seq_len, d_model)
+    Input:  (batch, seq_len, d_model)
       ↓
     Linear 1: d_model → d_ff       (expand to higher dimension)
       ↓
@@ -70,7 +83,7 @@ class FeedForwardNetwork(nn.Module):
       ↓
     Linear 2: d_ff → d_model       (project back)
       ↓
-    Output: (seq_len, d_model)
+    Output: (batch, seq_len, d_model)
 
     DIMENSIONS (GPT-2 Small):
       d_model = 768, d_ff = 3072  (4× expansion)
@@ -99,6 +112,45 @@ class FeedForwardNetwork(nn.Module):
     - W1 = nn.Linear(d_model, d_ff) - First linear projection
     - W2 = nn.Linear(d_ff, d_model) - Second linear projection
     - b1, b2 - Biases (automatically included in nn.Linear)
+
+    MATRIX DIMENSIONS THROUGH FFN:
+    ==============================
+    INPUT:
+      x: (batch, seq_len, d_model)
+      Example: (2, 10, 768) - 2 batches, 10 tokens, 768-dim embeddings
+
+    STEP 1 - FIRST LINEAR (fc1):
+      fc1.weight: (d_ff, d_model) = (3072, 768)
+      fc1.bias: (d_ff,) = (3072,)
+      
+      hidden = fc1(x)
+      (batch, seq_len, d_model) → (batch, seq_len, d_ff)
+      Example: (2, 10, 768) → (2, 10, 3072)
+      
+      Matrix operation: x @ fc1.weight.T + fc1.bias
+      (2, 10, 768) @ (768, 3072) → (2, 10, 3072)
+
+    STEP 2 - ReLU ACTIVATION:
+      hidden = ReLU(hidden)
+      (batch, seq_len, d_ff) → (batch, seq_len, d_ff)
+      Example: (2, 10, 3072) → (2, 10, 3072)
+      
+      Element-wise operation: max(0, x)
+      No shape change, just applies non-linearity
+
+    STEP 3 - SECOND LINEAR (fc2):
+      fc2.weight: (d_model, d_ff) = (768, 3072)
+      fc2.bias: (d_model,) = (768,)
+      
+      output = fc2(hidden)
+      (batch, seq_len, d_ff) → (batch, seq_len, d_model)
+      Example: (2, 10, 3072) → (2, 10, 768)
+      
+      Matrix operation: hidden @ fc2.weight.T + fc2.bias
+      (2, 10, 3072) @ (3072, 768) → (2, 10, 768)
+
+    OUTPUT:
+      Same shape as input: (batch, seq_len, d_model)
     """
 
     def __init__(self, d_model, d_ff):
@@ -119,7 +171,9 @@ class FeedForwardNetwork(nn.Module):
         super().__init__()
 
         # LEARNABLE linear layers - PyTorch initializes these automatically!
+        # fc1.weight: (d_ff, d_model), fc1.bias: (d_ff,)
         self.fc1 = nn.Linear(d_model, d_ff)  # Expand: d_model → d_ff
+        # fc2.weight: (d_model, d_ff), fc2.bias: (d_model,)
         self.fc2 = nn.Linear(d_ff, d_model)  # Project back: d_ff → d_model
 
         print(f"Feed-Forward Network initialized:")
@@ -139,19 +193,40 @@ class FeedForwardNetwork(nn.Module):
         Forward pass through the FFN.
 
         Args:
-            x: Input tensor, shape (..., d_model)
+            x: Input tensor, shape (batch, seq_len, d_model)
+               Example: (2, 10, 768) - 2 batches, 10 tokens, 768-dim embeddings
 
         Returns:
-            Output tensor, same shape as input (..., d_model)
+            Output tensor, same shape as input (batch, seq_len, d_model)
+
+        DIMENSION FLOW:
+        ===============
+        Input: (batch, seq_len, d_model)
+             ↓
+        fc1: (batch, seq_len, d_model) @ (d_ff, d_model).T → (batch, seq_len, d_ff)
+             ↓
+        ReLU: Element-wise, same shape (batch, seq_len, d_ff)
+             ↓
+        fc2: (batch, seq_len, d_ff) @ (d_model, d_ff).T → (batch, seq_len, d_model)
+             ↓
+        Output: (batch, seq_len, d_model)
         """
-        # Linear 1: d_model → d_ff
-        hidden = self.fc1(x)
+        # Step 1: Linear 1 - Expand to higher dimension
+        # x: (batch, seq_len, d_model)
+        # fc1.weight: (d_ff, d_model)
+        # hidden: (batch, seq_len, d_ff)
+        hidden = self.fc1(x)  # (batch, seq_len, d_ff)
 
-        # ReLU activation (non-linearity!)
-        hidden = F.relu(hidden)
+        # Step 2: ReLU activation (non-linearity!)
+        # hidden: (batch, seq_len, d_ff)
+        # Element-wise: max(0, hidden)
+        hidden = F.relu(hidden)  # (batch, seq_len, d_ff)
 
-        # Linear 2: d_ff → d_model
-        output = self.fc2(hidden)
+        # Step 3: Linear 2 - Project back to d_model
+        # hidden: (batch, seq_len, d_ff)
+        # fc2.weight: (d_model, d_ff)
+        # output: (batch, seq_len, d_model)
+        output = self.fc2(hidden)  # (batch, seq_len, d_model)
 
         return output
 
@@ -199,6 +274,36 @@ class LayerNorm(nn.Module):
     LEARNABLE PARAMETERS:
     - weight (γ): Scale factor, shape (d_model,)
     - bias (β): Shift factor, shape (d_model,)
+
+    MATRIX DIMENSIONS:
+    ==================
+    INPUT:
+      x: (batch, seq_len, d_model)
+      Example: (2, 10, 768)
+
+    STEP 1 - COMPUTE STATISTICS:
+      mean: (batch, seq_len, 1) - mean over d_model dimension
+      var: (batch, seq_len, 1) - variance over d_model dimension
+      
+      For each position, compute mean and variance across all d_model features.
+
+    STEP 2 - NORMALIZE:
+      x_norm = (x - mean) / sqrt(var + ε)
+      (batch, seq_len, d_model) → (batch, seq_len, d_model)
+      
+      Each feature is normalized to have mean≈0, std≈1.
+
+    STEP 3 - SCALE AND SHIFT:
+      weight: (d_model,) - learnable scale (γ)
+      bias: (d_model,) - learnable shift (β)
+      
+      output = weight * x_norm + bias
+      Broadcasting: (d_model,) applied to (batch, seq_len, d_model)
+      
+      This allows the network to undo normalization if beneficial.
+
+    OUTPUT:
+      Same shape as input: (batch, seq_len, d_model)
     """
 
     def __init__(self, d_model, eps=1e-5):
@@ -221,6 +326,7 @@ class LayerNorm(nn.Module):
 
         # LEARNABLE parameters: weight (scale) and bias (shift)
         # These let the network undo normalization if beneficial
+        # weight: (d_model,), bias: (d_model,)
         self.weight = nn.Parameter(torch.ones(d_model))
         self.bias = nn.Parameter(torch.zeros(d_model))
 
@@ -235,20 +341,51 @@ class LayerNorm(nn.Module):
         Apply layer normalization.
 
         Args:
-            x: Input tensor, shape (..., d_model)
+            x: Input tensor, shape (batch, seq_len, d_model)
+               Example: (2, 10, 768)
 
         Returns:
-            Normalized tensor, same shape as input
-        """
-        # Compute mean and variance over the last dimension (d_model)
+            Normalized tensor, same shape as input (batch, seq_len, d_model)
+
+        DIMENSION FLOW:
+        ===============
+        Input: (batch, seq_len, d_model)
+             ↓
         mean = x.mean(dim=-1, keepdim=True)
+             ↓
+        mean: (batch, seq_len, 1) - mean over d_model
+             ↓
         var = x.var(dim=-1, keepdim=True)
+             ↓
+        var: (batch, seq_len, 1) - variance over d_model
+             ↓
+        x_norm = (x - mean) / sqrt(var + eps)
+             ↓
+        x_norm: (batch, seq_len, d_model) - normalized
+             ↓
+        output = weight * x_norm + bias
+             ↓
+        Broadcasting: (d_model,) * (batch, seq_len, d_model) → (batch, seq_len, d_model)
+             ↓
+        Output: (batch, seq_len, d_model)
+        """
+        # Step 1: Compute mean and variance over the last dimension (d_model)
+        # x: (batch, seq_len, d_model)
+        # mean: (batch, seq_len, 1) - keepdim keeps the dimension
+        mean = x.mean(dim=-1, keepdim=True)  # (batch, seq_len, 1)
+        
+        # var: (batch, seq_len, 1) - variance over d_model
+        var = x.var(dim=-1, keepdim=True)  # (batch, seq_len, 1)
 
-        # Normalize
-        x_norm = (x - mean) / torch.sqrt(var + self.eps)
+        # Step 2: Normalize
+        # x_norm: (batch, seq_len, d_model)
+        # (x - mean): Broadcasting (batch, seq_len, 1) to (batch, seq_len, d_model)
+        x_norm = (x - mean) / torch.sqrt(var + self.eps)  # (batch, seq_len, d_model)
 
-        # Scale and shift with learnable parameters
-        return self.weight * x_norm + self.bias
+        # Step 3: Scale and shift with learnable parameters
+        # weight: (d_model,), bias: (d_model,)
+        # Broadcasting: (d_model,) applied to (batch, seq_len, d_model)
+        return self.weight * x_norm + self.bias  # (batch, seq_len, d_model)
 
 
 # =============================================================================
@@ -258,7 +395,7 @@ class LayerNorm(nn.Module):
 # In the Transformer, residual connections are simple:
 #   output = input + sublayer(input)
 # But they're ALWAYS followed by LayerNorm:
-#   output = LayerNorm(input + sublayer(input))
+#   output = LayerNorm(input + sublayer_output)
 #
 # ORIGINAL PAPER (Post-LayerNorm):
 #   x → Sublayer → LayerNorm(x + sublayer_output)
@@ -334,6 +471,47 @@ class TransformerBlock(nn.Module):
     - MultiHeadAttention: W_q, W_k, W_v, W_o (4 × d_model²)
     - FeedForwardNetwork: fc1, fc2 weights (2 × d_model × d_ff)
     - LayerNorm: weight, bias (2 × d_model × 2 layers)
+
+    MATRIX DIMENSIONS THROUGH TRANSFORMER BLOCK:
+    ============================================
+    
+    INPUT:
+      x: (batch, seq_len, d_model)
+      Example: (2, 10, 768)
+
+    SUB LAYER 1 - ATTENTION PATH:
+    ─────────────────────────────
+    Step 1 - Pre-LayerNorm:
+      ln1_out = self.ln1(x)
+      (batch, seq_len, d_model) → (batch, seq_len, d_model)
+      
+    Step 2 - Multi-Head Attention:
+      attn_out = self.attention(ln1_out)
+      (batch, seq_len, d_model) → (batch, seq_len, d_model)
+      See MultiHeadAttention for detailed dimension flow.
+      
+    Step 3 - Residual Connection:
+      x = x + attn_out
+      (batch, seq_len, d_model) + (batch, seq_len, d_model) → (batch, seq_len, d_model)
+
+    SUB LAYER 2 - FFN PATH:
+    ───────────────────────
+    Step 4 - Pre-LayerNorm:
+      ln2_out = self.ln2(x)
+      (batch, seq_len, d_model) → (batch, seq_len, d_model)
+      
+    Step 5 - Feed-Forward Network:
+      ffn_out = self.ffn(ln2_out)
+      (batch, seq_len, d_model) → (batch, seq_len, d_ff) → (batch, seq_len, d_model)
+      See FeedForwardNetwork for detailed dimension flow.
+      
+    Step 6 - Residual Connection:
+      x = x + ffn_out
+      (batch, seq_len, d_model) + (batch, seq_len, d_model) → (batch, seq_len, d_model)
+
+    OUTPUT:
+      Same shape as input: (batch, seq_len, d_model)
+      But now each token has rich contextual representation!
     """
 
     def __init__(self, d_model, n_heads, d_ff):
@@ -344,20 +522,26 @@ class TransformerBlock(nn.Module):
             d_model: Dimension of input/output embeddings
             n_heads: Number of attention heads
             d_ff: Hidden dimension of feed-forward network
+
+        LEARNABLE PARAMETERS:
+        - LayerNorm ln1: weight (d_model,), bias (d_model,)
+        - LayerNorm ln2: weight (d_model,), bias (d_model,)
+        - MultiHeadAttention: W_q, W_k, W_v, W_o (each d_model, d_model)
+        - FeedForwardNetwork: fc1 (d_model, d_ff), fc2 (d_ff, d_model)
         """
         super().__init__()
 
         # Layer normalization (before each sublayer - Pre-LayerNorm)
-        # LEARNABLE: weight and bias in each LayerNorm
+        # LEARNABLE: weight (d_model,), bias (d_model,)
         self.ln1 = LayerNorm(d_model)
         self.ln2 = LayerNorm(d_model)
 
         # Multi-Head Self-Attention (masked)
-        # LEARNABLE: W_q, W_k, W_v, W_o
+        # LEARNABLE: W_q, W_k, W_v, W_o (each d_model, d_model)
         self.attention = MultiHeadAttention(d_model, n_heads)
 
         # Feed-Forward Network
-        # LEARNABLE: fc1, fc2 weights and biases
+        # LEARNABLE: fc1 (d_model, d_ff), fc2 (d_ff, d_model)
         self.ffn = FeedForwardNetwork(d_model, d_ff)
 
         print(f"\nTransformerBlock initialized:")
@@ -369,28 +553,74 @@ class TransformerBlock(nn.Module):
 
         Args:
             x: Input tensor, shape (batch, seq_len, d_model)
+               Example: (2, 10, 768)
 
         Returns:
             Output tensor, shape (batch, seq_len, d_model)
+
+        DIMENSION FLOW THROUGH BLOCK:
+        =============================
+        
+        SUB LAYER 1 - ATTENTION:
+        ────────────────────────
+        x: (batch, seq_len, d_model)
+             ↓
+        ln1_out = self.ln1(x)
+             ↓
+        ln1_out: (batch, seq_len, d_model)
+             ↓
+        attn_out = self.attention(ln1_out)
+             ↓
+        attn_out: (batch, seq_len, d_model)
+             ↓
+        x = x + attn_out  (residual)
+             ↓
+        x: (batch, seq_len, d_model)
+        
+        SUB LAYER 2 - FFN:
+        ──────────────────
+        x: (batch, seq_len, d_model)
+             ↓
+        ln2_out = self.ln2(x)
+             ↓
+        ln2_out: (batch, seq_len, d_model)
+             ↓
+        ffn_out = self.ffn(ln2_out)
+             ↓
+        ffn_out: (batch, seq_len, d_model)
+             ↓
+        x = x + ffn_out  (residual)
+             ↓
+        Output: (batch, seq_len, d_model)
         """
         # ---- Sublayer 1: Multi-Head Self-Attention ----
         # Pre-LayerNorm: normalize BEFORE attention
+        # x: (batch, seq_len, d_model)
+        # ln1_out: (batch, seq_len, d_model)
         ln1_out = self.ln1(x)
 
         # Masked self-attention (causal)
+        # ln1_out: (batch, seq_len, d_model)
+        # attn_out: (batch, seq_len, d_model)
         attn_out = self.attention(ln1_out)
 
         # Residual connection
+        # x + attn_out: (batch, seq_len, d_model) + (batch, seq_len, d_model)
         x = x + attn_out
 
         # ---- Sublayer 2: Feed-Forward Network ----
         # Pre-LayerNorm: normalize BEFORE FFN
+        # x: (batch, seq_len, d_model)
+        # ln2_out: (batch, seq_len, d_model)
         ln2_out = self.ln2(x)
 
         # FFN transformation
+        # ln2_out: (batch, seq_len, d_model)
+        # ffn_out: (batch, seq_len, d_model)
         ffn_out = self.ffn(ln2_out)
 
         # Residual connection
+        # x + ffn_out: (batch, seq_len, d_model) + (batch, seq_len, d_model)
         x = x + ffn_out
 
         return x
@@ -491,6 +721,30 @@ class TransformerBlockStack(nn.Module):
     | Medium |  1024   |   16    | 4096 |    24    |  350M  |
     | Large  |  1280   |   20    | 5120 |    36    |  774M  |
     | XL     |  1600   |   25    | 6400 |    48    | 1558M  |
+
+    MATRIX DIMENSIONS THROUGH STACK:
+    ================================
+    INPUT:
+      x: (batch, seq_len, d_model)
+      Example: (2, 10, 768)
+
+    BLOCK 1:
+      Input:  (batch, seq_len, d_model)
+      Output: (batch, seq_len, d_model)
+      
+    BLOCK 2:
+      Input:  (batch, seq_len, d_model)  ← Output of Block 1
+      Output: (batch, seq_len, d_model)
+      
+    BLOCK 3:
+      Input:  (batch, seq_len, d_model)  ← Output of Block 2
+      Output: (batch, seq_len, d_model)
+      
+    ...and so on for all N blocks.
+
+    OUTPUT:
+      Same shape as input: (batch, seq_len, d_model)
+      But now with deep contextual understanding!
     """
 
     def __init__(self, d_model, n_heads, d_ff, n_blocks):
@@ -502,11 +756,19 @@ class TransformerBlockStack(nn.Module):
             n_heads: Number of attention heads
             d_ff: Hidden dimension of FFN
             n_blocks: Number of transformer blocks
+
+        LEARNABLE PARAMETERS:
+        - Each TransformerBlock has:
+          - LayerNorm: 2 × d_model parameters (weight + bias) × 2 norms
+          - MultiHeadAttention: 4 × d_model² parameters
+          - FeedForwardNetwork: 2 × d_model × d_ff parameters
+        - Total: n_blocks × (4 × d_model + 4 × d_model² + 2 × d_model × d_ff)
         """
         super().__init__()
         self.n_blocks = n_blocks
 
         # Create transformer blocks
+        # Each block: TransformerBlock(d_model, n_heads, d_ff)
         self.blocks = nn.ModuleList([
             TransformerBlock(d_model, n_heads, d_ff)
             for _ in range(n_blocks)
@@ -521,6 +783,20 @@ class TransformerBlockStack(nn.Module):
 
         Returns:
             Output tensor, shape (batch, seq_len, d_model)
+
+        DIMENSION FLOW:
+        ===============
+        x: (batch, seq_len, d_model)
+             ↓
+        Block 0: (batch, seq_len, d_model) → (batch, seq_len, d_model)
+             ↓
+        Block 1: (batch, seq_len, d_model) → (batch, seq_len, d_model)
+             ↓
+        ... (repeats for n_blocks)
+             ↓
+        Block n-1: (batch, seq_len, d_model) → (batch, seq_len, d_model)
+             ↓
+        Output: (batch, seq_len, d_model)
         """
         for i, block in enumerate(self.blocks):
             x = block(x)
@@ -556,8 +832,19 @@ def demonstrate_feed_forward_network():
     print(f"  (batch={batch_size}, seq_len={seq_len}, d_model={d_model})")
     print()
 
-    output = ffn(x)
-    print(f"Output shape: {output.shape}")
+    # Show intermediate shapes
+    hidden = ffn.fc1(x)
+    print(f"After fc1 (Linear 1): {hidden.shape}")
+    print(f"  (batch={batch_size}, seq_len={seq_len}, d_ff={d_ff})")
+    print()
+
+    hidden = F.relu(hidden)
+    print(f"After ReLU: {hidden.shape}")
+    print(f"  (batch={batch_size}, seq_len={seq_len}, d_ff={d_ff})")
+    print()
+
+    output = ffn.fc2(hidden)
+    print(f"After fc2 (Linear 2): {output.shape}")
     print(f"  (batch={batch_size}, seq_len={seq_len}, d_model={d_model})")
     print()
 
