@@ -42,5 +42,8 @@ Thumbs.db
 *.pth
 *.h5
 
+# Data files
+data/
+
 # Logs
 *.log
