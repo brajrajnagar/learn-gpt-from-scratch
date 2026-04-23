@@ -327,16 +327,91 @@ def create_causal_mask(seq_len):
     
     Prevents positions from attending to future positions.
     
+    WHY CAUSAL MASK?
+    ================
+    GPT is trained to predict the NEXT token. During training, each token
+    should ONLY see tokens that came BEFORE it, not after. This is called
+    "causal" because cause must precede effect!
+    
+    REAL-WORLD ANALOGY: Taking a Test
+    ==================================
+    Imagine taking a multiple-choice test:
+    
+    GOOD (causal): You answer questions 1, 2, 3 in order.
+                   Each answer only uses knowledge from earlier questions.
+    
+    BAD (not causal): You could peek at future questions before answering.
+                      This would give unfair advantage!
+    
+    In GPT training, we must prevent "peeking" at future tokens!
+    
+    HOW THE MASK WORKS:
+    ====================
+    
+    Example: Sequence "The cat sat" (3 tokens)
+    
+    WITHOUT MASK (bad - allows peeking):
+    ┌─────────┬─────┬─────┬─────┐
+    │ attends │ The │ cat │ sat │
+    ├─────────┼─────┼─────┼─────┤
+    │ The     │  ✓  │  ✗  │  ✗  │  ← "The" can only see itself
+    │ cat     │  ✓  │  ✓  │  ✗  │  ← "cat" can see "The" and itself
+    │ sat     │  ✓  │  ✓  │  ✓  │  ← "sat" can see ALL (BAD!)
+    └─────────┴─────┴─────┴─────┘
+    
+    Wait! The third row shows "sat" can see future tokens relative to
+    earlier positions. We need to BLOCK this!
+    
+    WITH CAUSAL MASK:
+    ┌─────────┬─────┬─────┬─────┐
+    │ attends │ The │ cat │ sat │
+    ├─────────┼─────┼─────┼─────┤
+    │ The     │  ✓  │  ✗  │  ✗  │  ← position 0 sees only itself
+    │ cat     │  ✓  │  ✓  │  ✗  │  ← position 1 sees 0 and itself
+    │ sat     │  ✓  │  ✓  │  ✓  │  ← position 2 sees all past
+    └─────────┴─────┴─────┴─────┘
+    
+    THE MASK MATRIX (3x3):
+    ┌──────┬──────┬──────┬──────┐
+    │      │  0   │  1   │  2   │
+    ├──────┼──────┼──────┼──────┤
+    │  0   │  0   │ -inf  │ -inf │  ← "The" blocked from cat, sat
+    │  1   │  0   │  0    │ -inf │  ← "cat" blocked from sat
+    │  2   │  0   │  0    │  0   │  ← "sat" sees all (it's last!)
+    └──────┴──────┴──────┴──────┘
+    
+    -inf (negative infinity) blocks attention!
+    After softmax: exp(-inf) = 0, so attention weight = 0
+    
+    VISUAL: Lower Triangular Matrix
+    ┌──────────────────┐
+    │ █ ░ ░ ░ ░ ░ ░ ░ ░│  ← Row 0: only position 0 visible
+    │ █ █ ░ ░ ░ ░ ░ ░ ░│  ← Row 1: positions 0,1 visible
+    │ █ █ █ ░ ░ ░ ░ ░ ░│  ← Row 2: positions 0,1,2 visible
+    │ █ █ █ █ ░ ░ ░ ░ ░│
+    │ █ █ █ █ █ ░ ░ ░ ░│
+    └──────────────────┘
+    █ = can attend (0)
+    ░ = blocked (-inf)
+    
     Args:
         seq_len: Sequence length
     
     Returns:
         Mask matrix where future positions have -1e9 (effectively zero after softmax)
     """
+    # Create mask matrix of zeros (shape: seq_len x seq_len)
+    # Zeros mean "can attend" (no blocking)
     mask = np.zeros((seq_len, seq_len))
+    
+    # Fill upper triangle with -1e9 (negative infinity)
+    # This blocks attention to future tokens
+    # i = row (current position), j = column (attended position)
+    # When j > i: position j is in the FUTURE of position i
     for i in range(seq_len):
         for j in range(i + 1, seq_len):
-            mask[i, j] = -1e9
+            mask[i, j] = -1e9  # Block future tokens
+    
     return mask
 
 # =============================================================================
