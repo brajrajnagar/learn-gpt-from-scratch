@@ -1,18 +1,16 @@
 # Learn GPT From Scratch - Build Your Own Transformer
 
-A complete step-by-step course that teaches you how GPT works by building one from scratch using Python and NumPy.
+A complete step-by-step course that teaches you how GPT works by building one from scratch using Python and NumPy, culminating in a PyTorch implementation with real backpropagation!
 
 ## 🎯 What You'll Build
 
-By the end of this course, you'll have built a **working Mini GPT** that can:
-- Understand the complete transformer architecture
-- Process text and generate predictions
-- Train on text data (forward pass demonstration)
-- Generate text with multiple strategies (greedy, sampling, top-k, top-p)
+By the end of this course, you'll have built:
+1. **Mini GPT (NumPy)** - Educational implementation understanding every detail
+2. **Mini GPT (PyTorch)** - Production-ready code with real training!
 
 ## 📚 Course Structure
 
-### Part 1: Foundations
+### Part 1: Foundations (NumPy)
 
 | Lesson | File | What You Learn |
 |--------|------|----------------|
@@ -21,14 +19,14 @@ By the end of this course, you'll have built a **working Mini GPT** that can:
 | 3 | `03_attention.py` | Self-attention mechanism (Q, K, V) |
 | 4 | `04_multihead_attention.py` | Multiple attention heads working in parallel |
 
-### Part 2: Building the Transformer
+### Part 2: Building the Transformer (NumPy)
 
 | Lesson | File | What You Learn |
 |--------|------|----------------|
 | 5 | `05_transformer_block.py` | Complete transformer block (attention + FFN + residuals) |
 | 6 | `06_gpt_model.py` | Full GPT architecture (stacked blocks + output projection) |
 
-### Part 3: Training and Generation
+### Part 3: Training and Generation (NumPy)
 
 | Lesson | File | What You Learn |
 |--------|------|----------------|
@@ -36,13 +34,22 @@ By the end of this course, you'll have built a **working Mini GPT** that can:
 | 8 | `08_generation.py` | Greedy decoding, sampling, top-k, top-p, temperature |
 | 9 | `09_mini_gpt.py` | **Complete working Mini GPT** - everything together! |
 
+### Part 4: Production Implementation (PyTorch) ⭐
+
+| Lesson | File | What You Learn |
+|--------|------|----------------|
+| 10 | `10_pytorch_transformer.py` | PyTorch implementation with **real backpropagation**! |
+
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 ```bash
-# You only need NumPy!
+# For Lessons 1-9 (NumPy only)
 pip install numpy
+
+# For Lesson 10 (PyTorch - real training!)
+pip install torch
 ```
 
 ### Run the Course
@@ -59,9 +66,10 @@ python 05_transformer_block.py
 python 06_gpt_model.py
 python 07_training.py
 python 08_generation.py
-
-# Finally, run the complete Mini GPT!
 python 09_mini_gpt.py
+
+# Finally, see the PyTorch implementation!
+python 10_pytorch_transformer.py
 ```
 
 ## 📖 What Each Lesson Covers
@@ -69,7 +77,7 @@ python 09_mini_gpt.py
 ### Lesson 1: Neural Network Basics
 **Real-World Analogy:** Restaurant Order System
 
-Learn how a single neuron detects patterns, then combine neurons into layers. By the end, you'll understand:
+Learn how a single neuron detects patterns, then combine neurons into layers:
 - Dot products (pattern matching)
 - Bias (baseline adjustment)
 - ReLU activation (firing threshold)
@@ -81,7 +89,7 @@ Learn how a single neuron detects patterns, then combine neurons into layers. By
 Learn how words become mathematical vectors:
 - Token embeddings (word meaning)
 - Position embeddings (word order)
-- Combined representation
+- **NEW**: Structured embeddings showing semantic similarity
 
 ### Lesson 3: Self-Attention
 **Real-World Analogy:** Team of Detectives
@@ -135,13 +143,31 @@ Learn different generation strategies:
 - Top-p sampling (pick until probability threshold)
 - Temperature (control creativity)
 
-### Lesson 9: Mini GPT
+### Lesson 9: Mini GPT (NumPy)
 **Real-World Implementation:** Complete working model!
 
 Everything comes together in a working Mini GPT that:
 - Tokenizes text (character-level)
 - Processes through transformer blocks
 - Generates text with multiple strategies
+
+### Lesson 10: PyTorch Transformer ⭐ NEW!
+**MCP-Enhanced Lesson** using official PyTorch documentation!
+
+Bridge from educational to production code:
+- `nn.MultiheadAttention` vs our NumPy implementation
+- `nn.TransformerEncoderLayer` for complete blocks
+- **Real backpropagation** with `torch.autograd`
+- Training loop with actual gradient descent
+- Text generation with trained model
+
+## 🤖 MCP-Enhanced Course
+
+This course was enhanced using Model Context Protocol (MCP) servers:
+
+- **Context7 MCP**: Fetched official PyTorch documentation for Lesson 10
+- **Sequential Thinking MCP**: Planned course structure and enhancements
+- **Git MCP**: Version control and GitHub integration
 
 ## 🎓 Key Concepts Explained
 
@@ -166,18 +192,18 @@ Input: "The cat sat on the"
 5. Sample next word: "mat" ← most likely!
 ```
 
-### GPT Architecture Comparison
+### Architecture Comparison
 
-| Component | GPT-2 Small | Our Mini GPT |
-|-----------|-------------|--------------|
-| Parameters | 124M | ~100K |
-| Embedding | 768 | 64 |
-| Heads | 12 | 4 |
-| Blocks | 12 | 2 |
-| Vocabulary | 50,257 | ~30 (chars) |
-| Training Data | 40GB | Demo text |
+| Component | GPT-2 Small | Our Mini GPT (NumPy) | Our Mini GPT (PyTorch) |
+|-----------|-------------|---------------------|------------------------|
+| Parameters | 124M | ~100K | ~1M |
+| Embedding | 768 | 64 | 128 |
+| Heads | 12 | 4 | 4 |
+| Blocks | 12 | 2 | 4 |
+| Backprop | ✓ | Demo only | ✓ Real! |
+| GPU | ✓ | ✗ | ✓ Ready |
 
-**Same architecture, different scale!**
+**Same architecture, different scales and capabilities!**
 
 ## 🔧 Experiment Guide
 
@@ -217,6 +243,18 @@ Input: "The cat sat on the"
    """
    ```
 
+4. **Real Training with Lesson 10**
+   ```python
+   # Run the PyTorch lesson for real backprop
+   python 10_pytorch_transformer.py
+   
+   # See loss decrease over training steps!
+   # Step  Loss       Perplexity
+   # 0      7.1834     1317.32
+   # 5      7.0027     1099.55
+   # 9      6.9402     1033.01
+   ```
+
 ## 📚 Additional Resources
 
 ### Papers
@@ -228,10 +266,10 @@ Input: "The cat sat on the"
 - [nanoGPT](https://github.com/karpathy/nanoGPT) - Andrej Karpathy's minimal GPT
 
 ### Next Steps
-1. **Learn PyTorch** - Real deep learning framework
-2. **Study Backpropagation** - How models actually learn
-3. **Explore BPE Tokenization** - How GPT-2/3 tokenize text
-4. **Try nanoGPT** - Minimal PyTorch GPT implementation
+1. **Study Backpropagation** - How models actually learn (Lesson 10!)
+2. **Explore BPE Tokenization** - How GPT-2/3 tokenize text
+3. **Try nanoGPT** - Minimal PyTorch GPT implementation
+4. **Hugging Face Course** - Free transformers course
 
 ## 🎉 What You've Accomplished
 
@@ -239,17 +277,24 @@ After completing this course:
 
 ✅ You understand how GPT works at a fundamental level
 ✅ You can explain self-attention, embeddings, and transformers
-✅ You've built a working language model from scratch
+✅ You've built a working language model from scratch (NumPy)
 ✅ You understand generation strategies (greedy, sampling, top-k, top-p)
+✅ You've seen real backpropagation training (PyTorch Lesson 10)
 ✅ You're ready to dive into more advanced deep learning!
 
 ## ⚠️ Important Notes
 
-This is an **educational implementation**:
-- Uses NumPy (not PyTorch/TensorFlow)
-- Demonstrates concepts (not optimized for performance)
+**NumPy Implementation (Lessons 1-9):**
+- Educational implementation
 - Forward pass only (no backpropagation)
-- Character-level tokenizer (not BPE)
+- Character-level tokenizer
+- Great for understanding concepts
+
+**PyTorch Implementation (Lesson 10):**
+- Production-ready code
+- Real backpropagation with autograd
+- GPU acceleration ready
+- Bridge to real-world LLM development
 
 For production use, see:
 - [nanoGPT](https://github.com/karpathy/nanoGPT) - Minimal PyTorch GPT
@@ -260,3 +305,12 @@ For production use, see:
 **Happy Learning! 🚀**
 
 Start with `python 01_neural_network_basics.py` and work through each lesson!
+
+## 📝 Repository
+
+**GitHub**: https://github.com/brajrajnagar/learn-gpt-from-scratch
+
+Latest updates:
+- Added Lesson 10: PyTorch Transformer with real backprop
+- Fixed embeddings with semantic structure (Lesson 2)
+- MCP-enhanced documentation
