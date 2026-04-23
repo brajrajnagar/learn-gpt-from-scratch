@@ -868,8 +868,16 @@ def load_checkpoint(model, optimizer, path, device):
     print(f"  Resuming from step {start_step}, best val loss: {best_val_loss:.4f}")
     return start_step, best_val_loss
 
+# Derive best checkpoint path from the main checkpoint path
+# Example: data/checkpoint.pt -> data/checkpoint_best.pt
+checkpoint_dir = os.path.dirname(args.checkpoint)
+checkpoint_base = os.path.basename(args.checkpoint)
+name, ext = os.path.splitext(checkpoint_base)
+args.checkpoint_best = os.path.join(checkpoint_dir, f"{name}_best{ext}")
+
 print("Checkpoint functions defined!")
-print(f"  Save path: {args.checkpoint}")
+print(f"  Latest checkpoint (resume):   {args.checkpoint}")
+print(f"  Best checkpoint (inference):  {args.checkpoint_best}")
 
 
 # =============================================================================
@@ -937,11 +945,19 @@ def generate_text(prompt, max_length=200, temperature=1.0):
 
 # ---- INFERENCE MODE: Just generate text, no training ----
 if args.mode == 'inference':
-    if not os.path.exists(args.checkpoint):
-        print(f"ERROR: Checkpoint not found at {args.checkpoint}")
+    # Prefer best checkpoint for inference (highest quality model)
+    # Fall back to latest checkpoint if best doesn't exist
+    if os.path.exists(args.checkpoint_best):
+        checkpoint_path = args.checkpoint_best
+        print(f"Using BEST checkpoint for inference: {checkpoint_path}")
+    elif os.path.exists(args.checkpoint):
+        checkpoint_path = args.checkpoint
+        print(f"Best checkpoint not found, using latest: {checkpoint_path}")
+    else:
+        print(f"ERROR: No checkpoint found at {args.checkpoint} or {args.checkpoint_best}")
         print(f"  Train first: python 10_real_training.py --mode train")
         exit(1)
-    load_checkpoint(model, None, args.checkpoint, config.device)
+    load_checkpoint(model, None, checkpoint_path, config.device)
     model.eval()
 
     print(f"\nGenerating with prompt: '{args.prompt}'")
@@ -1003,12 +1019,16 @@ for step in pbar:
         )
         tqdm.write(f"Step {step:<6} | Train Loss: {loss.item():.4f} | Val Loss: {val_loss.item():.4f} | Perplexity: {perplexity.item():.2f}")
 
-        # Save checkpoint when model improves
+        # Save latest checkpoint (always overwrite, for crash recovery/resume)
+        save_checkpoint(model, optimizer, step, best_val_loss, args.checkpoint)
+
+        # Save best checkpoint ONLY when validation loss improves (for inference)
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_checkpoint(model, optimizer, step, best_val_loss, args.checkpoint)
+            save_checkpoint(model, optimizer, step, best_val_loss, args.checkpoint_best)
+            tqdm.write(f"  *** New best val loss: {best_val_loss:.4f} ***")
 
-# Save final checkpoint
+# Save final checkpoint (always the latest state for resume)
 save_checkpoint(model, optimizer, config.max_iters - 1, best_val_loss, args.checkpoint)
 print("\nTraining complete!")
 
@@ -1034,8 +1054,13 @@ print("\n" + "="*70)
 print("STEP 11: Generate Shakespeare Text!")
 print("="*70)
 
-# Load the best checkpoint for generation
-load_checkpoint(model, None, args.checkpoint, config.device)
+# Load the best checkpoint for generation (highest quality model)
+if os.path.exists(args.checkpoint_best):
+    print(f"Loading BEST checkpoint for generation: {args.checkpoint_best}")
+    load_checkpoint(model, None, args.checkpoint_best, config.device)
+else:
+    print(f"Best checkpoint not found, loading latest: {args.checkpoint}")
+    load_checkpoint(model, None, args.checkpoint, config.device)
 model.eval()
 
 print("\n--- Temperature 0.7 (Creative but coherent) ---")
