@@ -254,7 +254,54 @@ def softmax(x):
     """
     Numerically stable softmax.
     
-    Converts logits to probabilities.
+    Converts logits (raw scores) to probabilities that sum to 1.0.
+    
+    WHY SOFTMAX?
+    ============
+    Neural networks output raw scores (logits) that can be any number.
+    But we need probabilities (0 to 1, summing to 1) to make predictions!
+    
+    SOFTMAX FORMULA:
+    ================
+    softmax(x_i) = exp(x_i) / sum(exp(x_j)) for all j
+    
+    EXAMPLE: Restaurant Choice
+    ==========================
+    Imagine choosing a restaurant based on scores:
+    
+    Raw scores (logits):
+      - Italian:  2.0
+      - Chinese:  1.0
+      - Mexican:  0.5
+    
+    Step 1: Subtract max (for numerical stability)
+      - Italian:  2.0 - 2.0 =  0.0
+      - Chinese:  1.0 - 2.0 = -1.0
+      - Mexican:  0.5 - 2.0 = -1.5
+    
+    Step 2: Exponentiate (e^x)
+      - Italian:  e^0.0  = 1.000
+      - Chinese:  e^-1.0 = 0.368
+      - Mexican:  e^-1.5 = 0.223
+    
+    Step 3: Normalize (divide by sum)
+      - Sum = 1.000 + 0.368 + 0.223 = 1.591
+      - Italian:  1.000 / 1.591 = 0.629 (62.9%)
+      - Chinese:  0.368 / 1.591 = 0.231 (23.1%)
+      - Mexican:  0.223 / 1.591 = 0.140 (14.0%)
+    
+    Result: Probabilities sum to 1.0!
+      [0.629, 0.231, 0.140] → sum = 1.0
+    
+    WHY SUBTRACT MAX?
+    =================
+    Large numbers in exp() can overflow:
+      - exp(1000) → infinity (bad!)
+      - exp(-1000) → 0 (ok)
+    
+    By subtracting max, largest value becomes 0:
+      - exp(0) = 1 (safe!)
+      - Ratios stay the same (mathematically equivalent)
     
     Args:
         x: Input array (can be 1D or 2D)
@@ -262,8 +309,16 @@ def softmax(x):
     Returns:
         Softmax output (probabilities that sum to 1)
     """
+    # Subtract max for numerical stability
+    # This prevents exp() from overflowing with large numbers
     x_max = np.max(x, axis=-1, keepdims=True)
+    
+    # Exponentiate (e^x)
+    # Higher scores get higher exponential values
     exp_x = np.exp(x - x_max)
+    
+    # Normalize: divide by sum so all values sum to 1.0
+    # This converts to valid probabilities
     return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
 
 def create_causal_mask(seq_len):
