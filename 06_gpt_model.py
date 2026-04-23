@@ -327,7 +327,7 @@ def create_causal_mask(seq_len):
     # Create mask matrix with -inf in upper triangle
     # This blocks attention to future tokens
     # Shape: (seq_len, seq_len)
-    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
+    mask = torch.triu(torch.full((seq_len, seq_len), float('-inf')), diagonal=1)
     return mask
 
 
@@ -997,7 +997,7 @@ class MultiHeadAttention(nn.Module):
         
         # Step 3: Create causal mask
         if self.causal_mask is None or self.causal_mask.shape[-1] < seq_len:
-            mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
+            mask = torch.triu(torch.full((seq_len, seq_len), float('-inf')), diagonal=1)
             self.causal_mask = mask.unsqueeze(0).unsqueeze(0)
         mask = self.causal_mask[:, :, :seq_len, :seq_len]
         

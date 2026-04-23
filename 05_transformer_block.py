@@ -1172,7 +1172,7 @@ class MultiHeadAttention(nn.Module):
 
         if use_causal_mask:
             if self.causal_mask is None or self.causal_mask.shape[-1] < seq_len:
-                mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
+                mask = torch.triu(torch.full((seq_len, seq_len), float('-inf')), diagonal=1)
                 self.causal_mask = mask.unsqueeze(0).unsqueeze(0)
             mask = self.causal_mask[:, :, :seq_len, :seq_len]
 
