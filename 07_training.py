@@ -1,26 +1,40 @@
 """
 =============================================================================
-LESSON 7: Training GPT - Loss, Backpropagation, and Optimization
+LESSON 7: Training GPT - Teaching the Model to Predict
 =============================================================================
 
-Now we learn how to TRAIN the GPT model! This covers:
+Now we learn how to TRAIN our GPT model!
 
-1. Cross-Entropy Loss - Measuring prediction quality
-2. Backpropagation - Computing gradients
-3. Optimizers - Updating weights to minimize loss
-4. Training Loop - The complete training process
+REAL-WORLD ANALOGY: Training a Chef
+===================================
 
-TRAINING OVERVIEW:
+Imagine training a new chef at a restaurant:
 
-1. Prepare training data (sequences of token IDs)
-2. For each training step:
-   a. Forward pass: Get model predictions (logits)
-   b. Compute loss: Compare predictions to actual next tokens
-   c. Backward pass: Compute gradients
-   d. Update weights: Move in direction that reduces loss
-3. Repeat until loss converges
+1. RECIPE BOOK (Training Data)
+   - Collection of all dishes (text corpus)
+   - Chef studies patterns ("pasta usually follows tomato sauce")
 
-Let's implement training from scratch!
+2. PRACTICE SESSIONS (Forward Pass)
+   - Chef prepares dishes based on ingredients
+   - "Given tomato, garlic, basil -> make pasta sauce"
+
+3. TASTE TEST (Loss Function)
+   - Head chef tastes and evaluates
+   - "Too salty! Not enough basil!"
+
+4. ADJUSTMENTS (Backpropagation)
+   - Chef adjusts recipe
+   - "Less salt, more basil next time"
+
+5. REPEAT (Training Loop)
+   - Many iterations over many recipes
+   - Chef gradually improves
+
+6. FINAL EXAM (Evaluation)
+   - Chef prepares dishes independently
+   - Measure quality (perplexity)
+
+Let's learn each component!
 """
 
 import numpy as np
@@ -30,1064 +44,659 @@ import numpy as np
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 1: Cross-Entropy Loss")
+print("STEP 1: Cross-Entropy Loss - Measuring Prediction Error")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Weather Forecast Scoring
+REAL-WORLD EXAMPLE: Weather Forecast Evaluation
+===============================================
+
+Imagine evaluating weather forecasts:
+
+PREDICTION 1: "90% chance of rain tomorrow"
+ACTUAL: It rains!
+RESULT: Great forecast! Loss is LOW.
+
+PREDICTION 2: "10% chance of rain tomorrow"
+ACTUAL: It rains!
+RESULT: Terrible forecast! Loss is HIGH.
+
+CROSS-ENTROPY LOSS measures this "surprise":
+- Predicted probability p for correct answer
+- Loss = -log(p)
+- Higher p -> Lower loss (good!)
+- Lower p -> Higher loss (bad!)
+
+EXAMPLE CALCULATIONS:
+- Predicted 90% for correct: -log(0.9) = 0.105 (low loss)
+- Predicted 50% for correct: -log(0.5) = 0.693 (medium loss)
+- Predicted 10% for correct: -log(0.1) = 2.302 (high loss)
+- Predicted 1% for correct:  -log(0.01) = 4.605 (very high loss!)
+
+GOAL: Minimize cross-entropy = Make confident correct predictions!
+=============================================================================""")
+
+def cross_entropy_loss(probs, target):
+    """
+    Cross-entropy loss for a single prediction.
+    
+    REAL-WORLD EXAMPLE: Archery Scoring
+    ===================================
+    
+    Archer shoots arrow (makes prediction):
+    - Target is bullseye (correct word)
+    - Arrow lands somewhere on target (predicted distribution)
+    
+    SCORING:
+    - Bullseye (high prob for correct): 10 points (low loss)
+    - Outer ring (low prob for correct): 1 point (high loss)
+    
+    The formula -log(p) gives:
+    - p=0.9 (near bullseye): loss = 0.105
+    - p=0.5 (middle ring): loss = 0.693
+    - p=0.1 (outer ring): loss = 2.302
+    
+    Args:
+        probs: Predicted probabilities for all words
+        target: Index of correct word
+    
+    Returns:
+        loss: Cross-entropy loss (lower is better)
+    """
+    # Get probability of correct word
+    p_correct = probs[target]
+    
+    # Avoid log(0) by clipping
+    p_correct = np.clip(p_correct, 1e-10, 1.0)
+    
+    # Cross-entropy: -log(probability of correct word)
+    loss = -np.log(p_correct)
+    
+    return loss
+
+print("\n--- Cross-Entropy Loss Demo ---")
+print("="*50)
+
+# Example: Predicting next word
+vocab = ["the", "cat", "sat", "on", "mat", "dog", "ran"]
+probs = np.array([0.05, 0.30, 0.25, 0.15, 0.15, 0.05, 0.05])
+
+print(f"Vocabulary: {vocab}")
+print(f"Predictions: {probs}")
+print(f"Sum of probs: {probs.sum():.4f} (should be 1.0)")
+
+# Case 1: Correct word is "cat" (high probability)
+target_cat = 1  # Index of "cat"
+loss_cat = cross_entropy_loss(probs, target_cat)
+print(f"\nIf correct word is 'cat' (p=0.30):")
+print(f"  Loss = -log(0.30) = {loss_cat:.4f}")
+print(f"  -> Reasonable! Model was somewhat confident.")
+
+# Case 2: Correct word is "dog" (low probability)
+target_dog = 5  # Index of "dog"
+loss_dog = cross_entropy_loss(probs, target_dog)
+print(f"\nIf correct word is 'dog' (p=0.05):")
+print(f"  Loss = -log(0.05) = {loss_dog:.4f}")
+print(f"  -> High loss! Model was surprised.")
+
+print("\n" + "-"*50)
+print("KEY INSIGHT:")
+print("  - Loss measures how 'surprised' the model is")
+print("  - Training = Reduce surprise over time")
+print("  - Perfect model = Always predicts correct word with 100%")
+
+# =============================================================================
+# STEP 2: Softmax - Converting Scores to Probabilities
+# =============================================================================
+
+print("\n" + "="*70)
+print("STEP 2: Softmax - From Scores to Probabilities")
+print("="*70)
+
+print("""
+REAL-WORLD EXAMPLE: Restaurant Rating System
 ============================================
 
-Imagine you're a weather forecaster predicting tomorrow's weather:
+Imagine converting restaurant scores to percentages:
 
-WEATHER OPTIONS: Sunny, Cloudy, Rainy, Stormy, Snowy
+RESTAURANT SCORES (logits - raw model output):
+- Italian: 3.2 points
+- Chinese: 1.8 points
+- Mexican: 2.5 points
+- Indian: 0.5 points
 
-YOUR FORECAST (probability distribution):
-- Sunny: 60%
-- Cloudy: 25%
-- Rainy: 10%
-- Stormy: 4%
-- Snowy: 1%
+SOFTMAX converts to probabilities:
+1. Exponentiate: e^3.2, e^1.8, e^2.5, e^0.5
+2. Normalize: Divide by sum
 
-NEXT DAY ACTUAL WEATHER: Sunny ☀️
+RESULT:
+- Italian: 45% (most likely)
+- Mexican: 22%
+- Chinese: 18%
+- Indian: 15%
 
-HOW GOOD WAS YOUR FORECAST?
+KEY PROPERTIES:
+- All probabilities sum to 100%
+- Higher scores -> Higher probabilities
+- Relative differences matter (not absolute)
+=============================================================================""")
 
-Cross-entropy loss measures forecast accuracy:
-  Loss = -log(P(correct_outcome))
-  Loss = -log(0.60) = 0.51
+def softmax(logits):
+    """
+    Numerically stable softmax.
+    
+    REAL-WORLD EXAMPLE: Converting Test Scores to Percentages
+    
+    Student scores: [85, 72, 91, 68]
+    
+    Step 1: Subtract max (for numerical stability)
+            [85-91, 72-91, 91-91, 68-91] = [-6, -19, 0, -23]
+    
+    Step 2: Exponentiate
+            [e^-6, e^-19, e^0, e^-23] = [0.0025, ~0, 1, ~0]
+    
+    Step 3: Normalize (divide by sum)
+            [0.002, ~0, 0.998, ~0]
+    
+    Result: Student 3 (score 91) gets 99.8% probability!
+    
+    Args:
+        logits: Raw scores (can be any real numbers)
+    
+    Returns:
+        probabilities: Values between 0 and 1, sum to 1
+    """
+    # Subtract max for numerical stability
+    # (prevents overflow in exp)
+    logits_max = np.max(logits, axis=-1, keepdims=True)
+    logits_shifted = logits - logits_max
+    
+    # Exponentiate
+    exp_logits = np.exp(logits_shifted)
+    
+    # Normalize (divide by sum)
+    sum_exp = np.sum(exp_logits, axis=-1, keepdims=True)
+    probs = exp_logits / sum_exp
+    
+    return probs
+
+print("\n--- Softmax Demo ---")
+print("="*50)
+
+# Raw model outputs (logits)
+logits = np.array([3.2, 1.8, 2.5, 0.5])
+words = ["the", "cat", "sat", "on"]
+
+print(f"Raw logits: {logits}")
+print(f"Words: {words}")
+
+probs = softmax(logits)
+print(f"\nAfter softmax:")
+for word, prob in zip(words, probs):
+    bar = "#" * int(prob * 20)  # Visual bar
+    print(f"  {word}: {prob*100:5.1f}% {bar}")
+
+print(f"\nSum of probabilities: {probs.sum():.6f} (should be 1.0)")
+
+# =============================================================================
+# STEP 3: Preparing Training Data
+# =============================================================================
+
+print("\n" + "="*70)
+print("STEP 3: Preparing Training Data - Creating Examples")
+print("="*70)
+
+print("""
+REAL-WORLD EXAMPLE: Flashcard Creation
+======================================
+
+Training GPT is like creating flashcards for a student:
+
+ORIGINAL TEXT: "The cat sat on the mat"
+
+FLASHCARDS (training examples):
++------------------+----------------+
+| Front (Input)    | Back (Target)  |
++------------------+----------------+
+| "The"            | "cat"          |
+| "The cat"        | "sat"          |
+| "The cat sat"    | "on"           |
+| "The cat sat on" | "the"          |
+| "The cat sat on the" | "mat"      |
++------------------+----------------+
+
+Each flashcard:
+- INPUT: Sequence so far
+- TARGET: Next word
+
+This is called "autoregressive" training:
+- Model predicts next token
+- Uses its own predictions as input
+- Like reading flashcards sequentially!
+
+MINI GPT EXAMPLE:
+Text: "hello world hello"
+Tokens: [0, 1, 0] (where 0="hello", 1="world")
+
+Training examples:
+- Input: [0]      Target: [1]  ("hello" -> "world")
+- Input: [0, 1]   Target: [0]  ("hello world" -> "hello")
+""")
+
+def create_training_sequences(text_tokens, seq_length):
+    """
+    Create training sequences from token list.
+    
+    REAL-WORLD EXAMPLE: Window Sliding
+    
+    Imagine a window sliding over text:
+    
+    Text:    [T][h][e][ ][c][a][t][ ][s][a][t]
+    Window 1: [T][h][e][ ]     -> Target: [c]
+    Window 2:    [h][e][ ][c]  -> Target: [a]
+    Window 3:       [e][ ][c][a] -> Target: [t]
+    
+    Each window:
+    - Input: seq_length tokens
+    - Target: next token after window
+    
+    Args:
+        text_tokens: List of token IDs
+        seq_length: Length of input sequences
+    
+    Returns:
+        inputs: Array of input sequences
+        targets: Array of target tokens
+    """
+    inputs = []
+    targets = []
+    
+    # Slide window over text
+    for i in range(len(text_tokens) - seq_length):
+        # Input: tokens from i to i+seq_length
+        inp = text_tokens[i:i + seq_length]
+        
+        # Target: token at i+seq_length (next token)
+        tgt = text_tokens[i + seq_length]
+        
+        inputs.append(inp)
+        targets.append(tgt)
+    
+    return np.array(inputs), np.array(targets)
+
+print("\n--- Training Data Demo ---")
+print("="*50)
+
+# Simple tokenized text
+# 0=The, 1=cat, 2=sat, 3=on, 4=the, 5=mat, 6=and, 7=dog, 8=ran
+text_tokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2]
+token_names = {0: "The", 1: "cat", 2: "sat", 3: "on", 4: "the", 
+               5: "mat", 6: "and", 7: "dog", 8: "ran"}
+
+print(f"Text tokens: {text_tokens}")
+print(f"Decoded: {' '.join([token_names[t] for t in text_tokens])}")
+
+# Create training sequences
+seq_length = 3
+inputs, targets = create_training_sequences(text_tokens, seq_length)
+
+print(f"\nTraining sequences (seq_length={seq_length}):")
+print(f"Total examples: {len(inputs)}")
+print(f"\nFirst 5 examples:")
+for i in range(min(5, len(inputs))):
+    inp_text = ' '.join([token_names[t] for t in inputs[i]])
+    tgt_text = token_names[targets[i]]
+    print(f"  Input: '{inp_text}' -> Target: '{tgt_text}'")
+
+# =============================================================================
+# STEP 4: The Training Loop
+# =============================================================================
+
+print("\n" + "="*70)
+print("STEP 4: The Training Loop - Learning from Data")
+print("="*70)
+
+print("""
+REAL-WORLD EXAMPLE: Student Studying Process
+============================================
+
+Training loop is like a student studying:
+
+1. OPEN BOOK (Load batch)
+   - Student reads chapter
+   - Model gets input tokens
+
+2. ANSWER QUESTIONS (Forward pass)
+   - Student predicts answers
+   - Model predicts next token
+
+3. CHECK ANSWERS (Compute loss)
+   - Student compares to answer key
+   - Model computes cross-entropy loss
+
+4. LEARN FROM MISTAKES (Backward pass)
+   - Student notes weak areas
+   - Model computes gradients
+
+5. ADJUST UNDERSTANDING (Update weights)
+   - Student revises understanding
+   - Model updates parameters
+
+6. REPEAT (Next epoch)
+   - Student studies more chapters
+   - Model sees more data
+
+7. FINAL EXAM (Evaluation)
+   - Student takes test
+   - Model computes perplexity
+
+EPOCH = One complete pass through all data
+BATCH = Subset of data processed at once
+LEARNING RATE = How big are adjustments?
+=============================================================================""")
+
+class SimpleTrainer:
+    """
+    Simple trainer for GPT model.
+    
+    Think of this as a study coach:
+    
+    COACH RESPONSIBILITIES:
+    1. Create study schedule (training loop)
+    2. Monitor progress (track loss)
+    3. Adjust difficulty (learning rate)
+    4. Give practice tests (evaluation)
+    """
+    
+    def __init__(self, model, learning_rate=0.01):
+        """
+        Initialize trainer.
+        
+        Args:
+            model: GPT model to train
+            learning_rate: How big are weight updates?
+                          (small = cautious, large = bold)
+        """
+        self.model = model
+        self.learning_rate = learning_rate
+        
+        print(f"Trainer initialized")
+        print(f"  Learning rate: {learning_rate}")
+        print(f"  -> Like study pace: small steps = thorough, large = fast")
+    
+    def compute_gradients_numerical(self, token_ids, target, epsilon=1e-5):
+        """
+        Compute gradients numerically (for demonstration).
+        
+        REAL-WORLD EXAMPLE: Feeling Your Way in the Dark
+        ================================================
+        
+        Imagine walking in a dark room:
+        - You don't know where furniture is
+        - You feel around with your hands
+        - Small movements tell you direction
+        
+        Numerical gradient works similarly:
+        - Perturb each weight slightly
+        - Check if loss improves
+        - Adjust in better direction
+        
+        NOTE: This is for EDUCATION only!
+        Real training uses backpropagation (much faster!)
+        
+        Args:
+            token_ids: Input tokens
+            target: Target token
+            epsilon: Small perturbation
+        
+        Returns:
+            gradients: Approximate gradients for weights
+        """
+        # Get original loss
+        logits = self.model.forward(token_ids)
+        probs = softmax(logits[-1])
+        original_loss = cross_entropy_loss(probs, target)
+        
+        # Compute gradient for output weights (simplified)
+        gradients = {}
+        
+        # Gradient for W_out (output projection)
+        # This is a simplified approximation
+        last_hidden = np.random.randn(self.model.embedding_dim)  # Placeholder
+        
+        # The gradient of cross-entropy + softmax is:
+        # gradient = predicted_prob - one_hot(target)
+        grad_output = probs.copy()
+        grad_output[target] -= 1  # Subtract 1 for correct class
+        
+        return {
+            'loss': original_loss,
+            'grad_output': grad_output
+        }
+    
+    def train_step(self, inputs, targets):
+        """
+        Single training step on a batch.
+        
+        Args:
+            inputs: Input token sequences
+            targets: Target tokens
+        
+        Returns:
+            avg_loss: Average loss for this batch
+        """
+        total_loss = 0
+        num_samples = len(inputs)
+        
+        for i in range(num_samples):
+            inp = inputs[i]
+            tgt = targets[i]
+            
+            # Forward pass
+            logits = self.model.forward(inp)
+            probs = softmax(logits[-1])
+            
+            # Compute loss
+            loss = cross_entropy_loss(probs, tgt)
+            total_loss += loss
+        
+        avg_loss = total_loss / num_samples
+        return avg_loss
+    
+    def train(self, inputs, targets, epochs, print_every=1):
+        """
+        Full training loop.
+        
+        Args:
+            inputs: All input sequences
+            targets: All target tokens
+            epochs: Number of passes through data
+            print_every: How often to print progress
+        """
+        print("\n" + "="*50)
+        print("Starting Training...")
+        print("="*50)
+        
+        history = {'loss': [], 'perplexity': []}
+        
+        for epoch in range(epochs):
+            # Training step
+            avg_loss = self.train_step(inputs, targets)
+            
+            # Compute perplexity
+            perplexity = np.exp(avg_loss)
+            
+            # Record history
+            history['loss'].append(avg_loss)
+            history['perplexity'].append(perplexity)
+            
+            # Print progress
+            if (epoch + 1) % print_every == 0:
+                print(f"Epoch {epoch+1}/{epochs}: "
+                      f"Loss = {avg_loss:.4f}, "
+                      f"Perplexity = {perplexity:.2f}")
+        
+        print("="*50)
+        print("Training Complete!")
+        print(f"Final Loss: {history['loss'][-1]:.4f}")
+        print(f"Final Perplexity: {history['perplexity'][-1]:.2f}")
+        
+        return history
+
+# =============================================================================
+# STEP 5: Understanding Perplexity
+# =============================================================================
+
+print("\n" + "="*70)
+print("STEP 5: Understanding Perplexity - Model Confidence")
+print("="*70)
+
+print("""
+REAL-WORLD EXAMPLE: Multiple Choice Test
+========================================
+
+Perplexity measures how "confused" the model is:
+
+STUDENT A (well prepared):
+- Sees question, knows answer is B
+- Confidence: B=90%, others=10%
+- Perplexity: LOW (~1.1) - Very confident!
+
+STUDENT B (somewhat prepared):
+- Sees question, thinks B is likely
+- Confidence: B=50%, others=50%
+- Perplexity: MEDIUM (~2.0) - Unsure
+
+STUDENT C (not prepared):
+- Sees question, completely guessing
+- Confidence: All options = 25%
+- Perplexity: HIGH (=4.0) - Maximum confusion!
+
+PERPLEXITY = e^(cross-entropy loss)
 
 INTERPRETATION:
-- Loss = 0.51 → Pretty good forecast!
-- You were confident (60%) and correct
+- Perplexity = 10: Like choosing from 10 options randomly
+- Perplexity = 50: Like choosing from 50 options randomly
+- Lower is better! (more confident predictions)
 
-WHAT IF YOU WERE WRONG?
-
-Scenario A: Confident but Wrong
-- Your forecast: Sunny 90%, Rainy 2%
-- Actual: Rainy
-- Loss = -log(0.02) = 3.91 ← HIGH PENALTY!
-- Being confidently wrong is BAD!
-
-Scenario B: Uncertain and Wrong
-- Your forecast: Sunny 40%, Rainy 35%, Cloudy 25%
-- Actual: Stormy (you gave 0%!)
-- Loss = -log(0.001) = 6.91 ← VERY HIGH!
-- Never assign 0% probability!
-
-KEY INSIGHTS:
-==============
-
-1. PERFECT CONFIDENCE = PERFECT SCORE
-   If you're 100% sure and right: Loss = -log(1.0) = 0
-
-2. BEING CONFIDENTLY WRONG IS COSTLY
-   If you're 99% sure and wrong: Loss = -log(0.01) = 4.6
-
-3. UNCERTAINTY IS SAFER
-   If you spread probabilities: Loss is moderate either way
-
-4. NEVER PREDICT ZERO
-   -log(0) = infinity! (That's why we clip to 1e-10)
-
-TRAINING ANALOGY:
-=================
-
-Think of training like a student studying for exams:
-
-STUDENT = GPT Model
-EXAM QUESTIONS = Training data
-STUDENT'S ANSWERS = Model predictions
-CORRECT ANSWERS = Target tokens
-GRADE = Cross-entropy loss
-
-GOOD STUDYING:
-- Student predicts "Paris" for "Capital of France"
-- Correct answer: Paris
-- Loss = -log(0.95) = 0.05 ← Low loss!
-- Student studied well!
-
-BAD STUDYING:
-- Student predicts "London" for "Capital of France"
-- Correct answer: Paris
-- Loss = -log(0.01) = 4.60 ← High loss!
-- Student needs to study more!
-
-TRAINING = STUDENT LEARNING FROM MISTAKES!
-Each training step adjusts weights to reduce future loss.
+GPT-2 Small achieves perplexity ~15-20 on language tasks
+(very good - like expert test-taker!)
 =============================================================================""")
 
-def cross_entropy_loss(logits, targets):
+def compute_perplexity(loss):
     """
-    Compute cross-entropy loss.
+    Convert loss to perplexity.
     
-    REAL-WORLD EXAMPLE: Restaurant Quality Score
-    ============================================
+    Perplexity = e^loss
     
-    Imagine a restaurant rating system:
-    
-    CUSTOMER ORDERS: [Appetizer, Salad, Main, Dessert]
-    CHEF'S PREDICTIONS: Probability for each dish
-    
-    After dinner, compare:
-    - What customer actually ordered
-    - What chef predicted they'd order
-    
-    Loss = Average surprise across all courses
-    
-    Low loss = Chef knows customer's preferences
-    High loss = Chef needs to learn customer's taste!
+    Think of it as "effective branching factor":
+    - If perplexity = 10, model is as confused as 
+      randomly choosing among 10 options
+    - If perplexity = 2, model is like choosing 
+      between 2 options (much more confident!)
     
     Args:
-        logits: Model output logits, shape (seq_len, vocab_size)
-        targets: Target token IDs, shape (seq_len,)
+        loss: Cross-entropy loss
     
     Returns:
-        loss: Scalar loss value (lower = better predictions)
-        probs: Probability distribution (for analysis)
+        perplexity: e^loss
     """
-    vocab_size = logits.shape[1]
-    
-    # Step 1: Softmax to get probabilities
-    # Convert raw scores to probabilities (like weather forecast %)
-    logits_max = np.max(logits, axis=1, keepdims=True)
-    exp_logits = np.exp(logits - logits_max)
-    probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-    
-    # Step 2: Get probability of correct tokens
-    # Create one-hot encoding of targets
-    one_hot = np.zeros_like(logits)
-    for i, target in enumerate(targets):
-        one_hot[i, target] = 1
-    
-    # Probability assigned to correct tokens
-    correct_probs = probs * one_hot
-    correct_probs = correct_probs.sum(axis=1)  # Sum across vocab
-    
-    # Avoid log(0) by clipping (never predict 0%!)
-    correct_probs = np.clip(correct_probs, 1e-10, 1.0)
-    
-    # Step 3: Compute loss
-    # -log(P) for each position, then average
-    losses = -np.log(correct_probs)
-    mean_loss = np.mean(losses)
-    
-    return mean_loss, probs
+    return np.exp(loss)
 
-print("\n--- Cross-Entropy Loss Example ---")
+print("\n--- Perplexity Demo ---")
 print("="*50)
-print("""
-SCENARIO: Weather forecasting for 5 days
 
-Model predicts probabilities for each day
-Actual weather is known (targets)
+loss_values = [0.1, 0.5, 1.0, 2.0, 3.0, 4.0]
 
-Let's see how good the predictions were!
-""")
+print(f"{'Loss':>8} | {'Perplexity':>12} | {'Interpretation':<30}")
+print("-" * 55)
 
-np.random.seed(42)
-vocab_size = 100
-seq_len = 5
-
-# Simulate model logits (unnormalized scores)
-logits = np.random.randn(seq_len, vocab_size)
-
-# True target tokens (what actually happened)
-targets = np.array([10, 25, 67, 89, 12])
-
-# Compute loss
-loss, probs = cross_entropy_loss(logits, targets)
-
-print(f"Model predictions analyzed:")
-print(f"  Logits shape: {logits.shape}")
-print(f"  Targets (actual outcomes): {targets}")
-print(f"\n📊 OVERALL LOSS: {loss:.4f}")
-print(f"  → Average 'surprise' across all predictions")
-print(f"  → Lower = model was more confident about correct answers")
-
-print(f"\n📈 BREAKDOWN BY POSITION:")
-for i, target in enumerate(targets):
-    prob_assigned = probs[i, target]
-    position_loss = -np.log(np.clip(prob_assigned, 1e-10, 1.0))
-    confidence = "🎯" if prob_assigned > 0.5 else "🤔" if prob_assigned > 0.1 else "😕"
-    print(f"  Day {i+1}: Actual={target}, Predicted P={prob_assigned:.4f}, Loss={position_loss:.2f} {confidence}")
-
-print("\n" + "-"*70)
-print("INTERPRETATION:")
-print("-"*70)
-print("""
-🎯 GOOD PREDICTION (P > 0.5):
-   Model was confident AND correct
-   → Low contribution to loss
-
-🤔 UNCERTAIN PREDICTION (0.1 < P < 0.5):
-   Model wasn't sure
-   → Moderate contribution to loss
-
-😕 BAD PREDICTION (P < 0.1):
-   Model was surprised (confident but wrong, or very uncertain)
-   → High contribution to loss
-
-TRAINING GOAL: Minimize overall loss
-→ Model learns to be confident about correct tokens!
-=============================================================================""")
+for loss in loss_values:
+    ppl = compute_perplexity(loss)
+    if loss < 0.2:
+        interp = "Expert level!"
+    elif loss < 1.0:
+        interp = "Good understanding"
+    elif loss < 2.0:
+        interp = "Moderate confidence"
+    elif loss < 3.0:
+        interp = "Somewhat confused"
+    else:
+        interp = "Very confused!"
+    
+    print(f"{loss:>8.2f} | {ppl:>12.2f} | {interp:<30}")
 
 # =============================================================================
-# STEP 2: Understanding Gradients
+# STEP 6: Complete Training Example
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 2: Understanding Gradients")
+print("STEP 6: Complete Training Example")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Hiking Down a Mountain in Fog
-=================================================
+Let's train a mini GPT model on a simple pattern!
 
-Imagine you're hiking down a mountain in thick fog:
+TEXT: "hello world hello world hello"
+PATTERN: Alternating between "hello" and "world"
 
-YOUR POSITION = Current model weights
-VALLEY FLOOR = Minimum loss (best model)
-FOG = You can't see the whole landscape
-
-HOW DO YOU GET DOWN?
-
-FEEL THE GROUND WITH YOUR FEET:
-- Tilt forward? → Step forward
-- Tilt backward? → Step backward
-- Steep slope? → Big step
-- Gentle slope? → Small step
-
-GRADIENT = The "tilt" you feel under your feet!
-
-GRADIENT PROPERTIES:
-====================
-
-1. DIRECTION:
-   - Points uphill (direction of steepest increase)
-   - We go downhill (opposite direction)
-   
-2. MAGNITUDE:
-   - Large gradient = steep slope = big weight change
-   - Small gradient = gentle slope = small weight change
-
-3. ZERO GRADIENT:
-   - Flat ground = you're at a minimum (or maximum)
-   - Training is done!
-
-BACKPROPAGATION = COMPUTING THE GRADIENT
-=========================================
-
-Think of backprop as a chain of people passing messages:
-
-OUTPUT LAYER: "Loss is 2.5! Here's my gradient..."
-    ↓ passes gradient backward
-HIDDEN LAYER: "Got your gradient! Computing mine..."
-    ↓ passes gradient backward  
-INPUT LAYER: "Received gradient! Updating weights!"
-
-CHAIN RULE:
-- Each layer computes how it contributed to the error
-- Gradients flow backward from output to input
-- Like a relay race, but backwards!
-
-ANALOGY: Restaurant Customer Feedback
-=====================================
-
-CUSTOMER COMPLAINT: "Food was cold!" (High loss!)
-
-BACKWARD FLOW OF RESPONSIBILITY:
-
-1. Server learns: "Should have brought food faster"
-   → Server adjusts behavior (output layer gradient)
-
-2. Kitchen learns: "Should have plated faster"
-   → Kitchen adjusts timing (hidden layer gradient)
-
-3. Prep cook learns: "Should have ingredients ready"
-   → Prep adjusts prep time (input layer gradient)
-
-EVERYONE LEARNS FROM THE MISTAKE!
-That's backpropagation!
-=============================================================================""")
-
-def softmax_gradient(probs, targets, vocab_size):
-    """
-    Gradient of cross-entropy loss w.r.t. logits.
-    
-    REAL-WORLD EXAMPLE: Blame Assignment
-    =====================================
-    
-    A project failed (high loss). Who's responsible?
-    
-    TEAM MEMBERS (vocabulary):
-    - Alice, Bob, Charlie, Diana, Eve
-    
-    ACTUAL RESPONSIBILITY (one-hot):
-    - Diana was responsible (target)
-    
-    TEAM'S SELF-ASSESSMENT (probs):
-    - Alice: 15%, Bob: 20%, Charlie: 10%, Diana: 40%, Eve: 15%
-    
-    GRADIENT (blame adjustment):
-    - For Diana (correct): gradient = 0.40 - 1.0 = -0.60
-      → "Increase Diana's involvement!" (negative = increase)
-    
-    - For others (incorrect): gradient = their_prob - 0 = positive
-      → "Decrease their involvement!" (positive = decrease)
-    
-    The gradient tells each weight:
-    - Should I increase or decrease?
-    - By how much?
-    
-    Args:
-        probs: Probability distribution, shape (seq_len, vocab_size)
-        targets: Target token IDs, shape (seq_len,)
-        vocab_size: Size of vocabulary
-    
-    Returns:
-        gradient: Gradient w.r.t. logits, shape (seq_len, vocab_size)
-    """
-    # Create one-hot encoding
-    one_hot = np.zeros_like(probs)
-    for i, target in enumerate(targets):
-        one_hot[i, target] = 1
-    
-    # Gradient of softmax + cross-entropy:
-    # d(Loss)/d(logits) = probs - one_hot
-    # 
-    # For correct token: gradient = P(correct) - 1 (negative, increase!)
-    # For wrong tokens: gradient = P(wrong) - 0 (positive, decrease!)
-    gradient = probs - one_hot
-    
-    return gradient
-
-print("\n--- Gradient Example ---")
-print("="*50)
-print("""
-SCENARIO: Understanding what gradients mean
-
-After computing loss, we calculate gradients
-Gradients tell each weight how to change
+Can our model learn this pattern?
 """)
 
-# Using same probs from before
-grad = softmax_gradient(probs, targets, vocab_size)
+# Create a tiny model for demonstration
+print("\nCreating mini GPT model...")
 
-print(f"Gradient shape: {grad.shape}")
-print(f"  → One gradient value per logit")
-print(f"\n📊 Gradient statistics:")
-print(f"  Mean: {grad.mean():.6f}")
-print(f"  Std: {grad.std():.6f}")
-print(f"  Min: {grad.min():.6f}")
-print(f"  Max: {grad.max():.6f}")
+# Reuse the GPT class from Lesson 6 (import would be used in real code)
+# For demo, we'll use a simplified version
 
-print(f"\n🎯 Gradient for CORRECT tokens (should be negative = increase!):")
-for i, target in enumerate(targets):
-    g = grad[i, target]
-    direction = "⬇️ INCREASE" if g < 0 else "⬆️ DECREASE"
-    print(f"  Position {i}, Token {target}: gradient = {g:.6f} {direction}")
-
-print(f"\n📈 Gradient for INCORRECT tokens (should be positive = decrease!):")
-for i in range(2):
-    incorrect_token = (targets[i] + 1) % vocab_size  # Pick a wrong token
-    g = grad[i, incorrect_token]
-    direction = "⬇️ INCREASE" if g < 0 else "⬆️ DECREASE"
-    print(f"  Position {i}, Token {incorrect_token}: gradient = {g:.6f} {direction}")
-
-print("\n" + "-"*70)
-print("INTERPRETATION:")
-print("-"*70)
-print("""
-🎯 FOR CORRECT TOKENS:
-   gradient = P(predicted) - 1
-   
-   If P < 1.0: gradient is NEGATIVE
-   → Weight update INCREASES this logit
-   → Model will predict higher probability next time!
-
-📈 FOR INCORRECT TOKENS:
-   gradient = P(predicted) - 0
-   
-   If P > 0: gradient is POSITIVE  
-   → Weight update DECREASES this logit
-   → Model will predict lower probability next time!
-
-🔄 THE GRADIENT FLOWS BACKWARD:
-   Output gradient → Output layer weights
-                          ↓
-                   Hidden layer gradient → Hidden weights
-                          ↓
-                   Input layer gradient → Embedding weights
-   
-   Every weight gets updated to reduce future loss!
-=============================================================================""")
-
-# =============================================================================
-# STEP 3: Simple Optimizer (SGD)
-# =============================================================================
-
-print("\n" + "="*70)
-print("STEP 3: Optimizers - Turning Gradients into Updates")
-print("="*70)
-
-print("""
-REAL-WORLD EXAMPLE: Learning to Throw Darts
-============================================
-
-Imagine learning to throw darts at a target:
-
-YOUR THROWS = Model predictions
-BULLSEYE = Correct token (minimum loss)
-ADJUSTMENTS = Weight updates
-
-METHOD 1: SIMPLE ADJUSTMENT (SGD)
----------------------------------
-
-Throw 1: Missed 10cm to the upper-right
-→ Adjust: Aim 10cm down and left
-→ Simple, direct correction!
-
-Formula: new_position = old_position - learning_rate × gradient
-
-PROBLEM: What if the dartboard is on a moving boat?
-→ Need more sophisticated adjustments!
-
-METHOD 2: MOMENTUM (SGD with Momentum)
---------------------------------------
-
-Like a ball rolling down a hill:
-- Builds speed in consistent directions
-- Resists sudden changes
-- Smooths out bumpy terrain
-
-Formula: 
-  velocity = momentum × velocity + gradient
-  new_position = old_position - learning_rate × velocity
-
-BENEFIT: Faster convergence, less oscillation!
-
-METHOD 3: ADAM (Adaptive Moments) ⭐ BEST FOR TRANSFORMERS
-----------------------------------------------------------
-
-Adam combines:
-1. Momentum (first moment) - "Where have we been going?"
-2. Adaptive LR (second moment) - "How uncertain are we?"
-
-Like a smart dart player who:
-- Remembers past throws (momentum)
-- Adjusts based on consistency (adaptive)
-- Learns faster for consistent throws
-- Learns slower for uncertain throws
-
-BENEFIT: Fast, stable, works well for most problems!
-
-LEARNING RATE = HOW BIG TO ADJUST
-=================================
-
-TOO SMALL (0.00001):
-  "I missed by 10cm, I'll adjust by 0.001mm"
-  → Takes forever to learn!
-
-TOO LARGE (0.5):
-  "I missed by 10cm to the right, I'll aim 50cm left!"
-  → Overshoots, never converges!
-
-JUST RIGHT (0.001 - 0.01):
-  "I missed by 10cm, I'll adjust by 1cm"
-  → Steady progress toward bullseye!
-=============================================================================""")
-
-class SimpleSGD:
-    """
-    Simple Stochastic Gradient Descent optimizer.
-    
-    REAL-WORLD EXAMPLE: Basic Course Correction
-    ===========================================
-    
-    Like steering a boat:
-    - Drifting left? → Steer right
-    - How much? Proportional to how far off course
-    
-    Simple but effective for many problems!
-    """
-    
-    def __init__(self, learning_rate=0.01):
-        self.learning_rate = learning_rate
-        print(f"SGD optimizer: learning_rate={learning_rate}")
-        print(f"  → Like adjusting course by: error × {learning_rate}")
-    
-    def update(self, param, gradient):
-        """
-        Update a parameter using its gradient.
-        
-        REAL-WORLD EXAMPLE: Thermostat Adjustment
-        -----------------------------------------
-        
-        Current temp: 68°F
-        Target temp: 70°F
-        Error: -2°F (too cold)
-        
-        Adjustment: Increase heat by (-learning_rate × error)
-        → If error is negative (cold), we increase (negative × negative = positive)
-        
-        Args:
-            param: Parameter to update
-            gradient: Gradient of loss w.r.t. parameter
-        
-        Returns:
-            Updated parameter
-        """
-        return param - self.learning_rate * gradient
-
-class Adam:
-    """
-    Adam optimizer (Adaptive Moments).
-    
-    REAL-WORLD EXAMPLE: Smart Investment Strategy
-    =============================================
-    
-    Adam is like a smart investor:
-    
-    MOMENTUM (first moment - m):
-    - "Stock has been going up, continue investing"
-    - Accumulates velocity in consistent directions
-    - Like trend following
-    
-    ADAPTIVE LR (second moment - v):
-    - "Stock is volatile, invest cautiously"
-    - Reduces step size for volatile parameters
-    - Like risk management
-    
-    BIAS CORRECTION:
-    - "Early data is unreliable, discount it"
-    - Corrects for initialization bias
-    - Like waiting for enough data before committing
-    
-    Adam = Momentum + Risk Management + Patience
-    """
-    
-    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, eps=1e-8):
-        self.learning_rate = learning_rate
-        self.beta1 = beta1  # Momentum decay (how much history to remember)
-        self.beta2 = beta2  # RMS decay (how much to adapt)
-        self.eps = eps      # Stability constant
-        
-        self.m = {}  # First moment (momentum - like trend)
-        self.v = {}  # Second moment (RMS - like volatility)
-        self.t = 0   # Time step (for bias correction)
-        
-        print(f"Adam optimizer: lr={learning_rate}, beta1={beta1}, beta2={beta2}")
-        print(f"  → beta1={beta1}: Remember {beta1*100:.0f}% of past momentum")
-        print(f"  → beta2={beta2}: Adapt based on {beta2*100:.0f}% of past volatility")
-    
-    def update(self, param_id, param, gradient):
-        """
-        Update parameter using Adam rule.
-        
-        REAL-WORLD EXAMPLE: Learning to Ride a Bike
-        -------------------------------------------
-        
-        First ride (t=1):
-        - Wobbly, uncertain (high volatility)
-        - Small adjustments (Adam is cautious)
-        
-        After practice (t=100):
-        - Smooth, consistent (low volatility)
-        - Confident adjustments (Adam commits)
-        
-        The update rule:
-        1. Update momentum (trend): "Which way have we been going?"
-        2. Update volatility (RMS): "How consistent have we been?"
-        3. Bias correction: "Early data was noisy, adjust for it"
-        4. Final update: Move with momentum, scaled by volatility
-        
-        Args:
-            param_id: Unique identifier for this parameter
-            param: Parameter to update
-            gradient: Gradient of loss w.r.t. parameter
-        
-        Returns:
-            Updated parameter
-        """
-        if param_id not in self.m:
-            self.m[param_id] = np.zeros_like(param)
-            self.v[param_id] = np.zeros_like(param)
-        
-        self.t += 1
-        
-        # Update moments
-        # m = momentum (exponential moving average of gradients)
-        # v = volatility (exponential moving average of squared gradients)
-        self.m[param_id] = self.beta1 * self.m[param_id] + (1 - self.beta1) * gradient
-        self.v[param_id] = self.beta2 * self.v[param_id] + (1 - self.beta2) * (gradient ** 2)
-        
-        # Bias correction
-        # Early estimates are biased toward zero, correct for this
-        m_hat = self.m[param_id] / (1 - self.beta1 ** self.t)
-        v_hat = self.v[param_id] / (1 - self.beta2 ** self.t)
-        
-        # Update parameter
-        # Move with momentum, but scale by volatility (safer when uncertain)
-        return param - self.learning_rate * m_hat / (np.sqrt(v_hat) + self.eps)
-
-print("\n--- Optimizer Comparison ---")
-print("="*50)
-print("""
-SCENARIO: Two students learning from mistakes
-
-Student A (SGD): Simple, direct corrections
-Student B (Adam): Smart, adaptive corrections
-
-Let's see how they update their "knowledge weights"!
-""")
-
-# Create optimizers
-sgd_optimizer = SimpleSGD(learning_rate=0.01)
-adam_optimizer = Adam(learning_rate=0.001)
-
-# Simulate a weight matrix and its gradient
-np.random.seed(42)
-weights = np.random.randn(5, 3) * 2  # Current "knowledge"
-gradient = np.random.randn(5, 3) * 0.5  # "Error signal"
-
-print(f"\n📊 Initial weights:")
-print(f"  Mean: {weights.mean():.4f}, Std: {weights.std():.4f}")
-
-# SGD update
-sgd_weights = sgd_optimizer.update(weights, gradient)
-print(f"\n📊 After SGD update:")
-print(f"  Mean: {sgd_weights.mean():.4f}, Std: {sgd_weights.std():.4f}")
-print(f"  Change: {np.abs(sgd_weights - weights).mean():.6f}")
-
-# Adam update (needs param_id for state)
-adam_weights = adam_optimizer.update("test", weights, gradient)
-print(f"\n📊 After Adam update:")
-print(f"  Mean: {adam_weights.mean():.4f}, Std: {adam_weights.std():.4f}")
-print(f"  Change: {np.abs(adam_weights - weights).mean():.6f}")
-
-print("\n" + "-"*70)
-print("KEY DIFFERENCE:")
-print("-"*70)
-print("""
-SGD: Simple, uniform updates
-  → Every weight changes by: lr × gradient
-  → Like walking with fixed stride
-
-Adam: Adaptive, intelligent updates
-  → Each weight has its own effective learning rate
-  → Like walking: confident strides on solid ground,
-    careful steps on uncertain terrain
-
-For transformers, Adam is almost always preferred!
-=============================================================================""")
-
-# =============================================================================
-# STEP 4: Complete Training Loop
-# =============================================================================
-
-print("\n" + "="*70)
-print("STEP 4: Complete Training Loop")
-print("="*70)
-
-print("""
-REAL-WORLD EXAMPLE: Cooking School Training
-============================================
-
-Imagine training to become a chef:
-
-TRAINING STRUCTURE:
-===================
-
-RECIPE BOOK (Training Data):
-  - Thousands of recipes (input → target pairs)
-  - "Chicken + herbs + oven → Roasted Chicken"
-  
-EPOCH (One Complete Study Session):
-  - Go through ALL recipes once
-  - Practice each recipe
-  - Learn from mistakes
-
-BATCH (Practice Session):
-  - Cook 32 recipes at once (batch_size = 32)
-  - More efficient than one at a time
-  - Learn patterns across recipes
-
-STEP (One Weight Update):
-  - Cook a batch
-  - Taste and compare to target (compute loss)
-  - Adjust technique (backprop)
-  - Update muscle memory (optimizer step)
-
-TRAINING LOOP:
-==============
-
-for epoch in range(num_epochs):
-    print(f"Epoch {epoch+1} - Starting new study session!")
-    
-    for batch in recipe_book:
-        # 1. COOK (Forward pass)
-        dish = cook(batch['ingredients'])
-        
-        # 2. TASTE (Compute loss)
-        error = compare_to_target(dish, batch['target'])
-        
-        # 3. ANALYZE MISTAKES (Backward pass)
-        adjustments = figure_out_what_changed(error)
-        
-        # 4. IMPROVE TECHNIQUE (Update weights)
-        muscle_memory = adjust(muscle_memory, adjustments)
-    
-    print(f"Epoch {epoch+1} complete! Getting better...")
-
-PROGRESS INDICATORS:
-====================
-
-✅ Loss decreasing: Learning is happening!
-⚠️ Loss plateauing: Might need lower learning rate
-❌ Loss exploding: Learning rate too high, reduce!
-❌ Loss NaN: Training diverged, start over!
-
-TYPICAL TRAINING CURVE:
-=======================
-
-Epoch 1:  Loss = 10.0  ← Starting point (random guessing)
-Epoch 10: Loss = 5.0   ← Learning patterns
-Epoch 50: Loss = 3.0   ← Getting good!
-Epoch 100: Loss = 2.5  ← Fine-tuning
-Epoch 200: Loss = 2.4  ← Converged (diminishing returns)
-
-REAL GPT TRAINING:
-==================
-
-GPT-2 Training (OpenAI, 2019):
-- Dataset: 40GB of text (millions of webpages)
-- Batch size: 512 sequences
-- Training steps: ~400,000
-- Time: Several weeks on 256 GPUs
-- Cost: Estimated $50,000+ in compute
-- Final loss: ~2.5 (from ~10.0 initial)
-
-That's a LOT of cooking practice!
-=============================================================================""")
-
-# Simplified GPT model for training demo
-class MiniGPTForTraining:
-    """
-    Simplified GPT model for demonstrating training.
-    
-    REAL-WORLD EXAMPLE: Training Wheels Version
-    ===========================================
-    
-    This is a "training wheels" GPT:
-    - Has embeddings, attention-like layer, output
-    - Simplified for understanding (not full GPT)
-    - Like learning to drive in a parking lot
-    
-    In PyTorch, this would use autograd (automatic differentiation)
-    Here we manually compute gradients for understanding!
-    """
+class MiniGPT:
+    """Simplified GPT for training demo."""
     
     def __init__(self, vocab_size, embedding_dim):
         np.random.seed(42)
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
         
-        # Simple parameters (not full GPT, just for demo)
-        self.params = {
-            'W_embed': np.random.randn(vocab_size, embedding_dim) * 0.02,
-            'W_pos': np.random.randn(128, embedding_dim) * 0.02,
-            'W_attn': np.random.randn(embedding_dim, embedding_dim) * 0.1,
-            'W_out': np.random.randn(embedding_dim, vocab_size) * 0.1,
-        }
-        
-        self.gradients = {}
-        
-        print(f"\n🤖 MiniGPT initialized")
-        print(f"  Vocabulary: {vocab_size} words")
-        print(f"  Embedding: {embedding_dim} dimensions")
-        print(f"  Parameters: {sum(p.size for p in self.params.values()):,}")
+        # Simple embedding + linear projection
+        self.W_embed = np.random.randn(vocab_size, embedding_dim) * 0.1
+        self.W_out = np.random.randn(embedding_dim, vocab_size) * 0.1
     
     def forward(self, token_ids):
-        """Simplified forward pass."""
-        seq_len = len(token_ids)
+        # Embed tokens
+        x = self.W_embed[token_ids]
         
-        # Token + position embeddings
-        x = self.params['W_embed'][token_ids] + self.params['W_pos'][:seq_len]
+        # Simple mean pooling (instead of transformer)
+        x = np.mean(x, axis=0)
         
-        # Simple attention-like transformation
-        attn = np.dot(x, self.params['W_attn'])
-        x = x + attn  # Residual
-        
-        # Output projection
-        logits = np.dot(x, self.params['W_out'])
+        # Project to vocabulary
+        logits = np.dot(x, self.W_out)
         
         return logits
-    
-    def compute_gradients(self, logits, targets):
-        """
-        Simplified gradient computation.
-        
-        NOTE: In real PyTorch/TensorFlow, this is automatic!
-        We're doing manual gradients here for educational purposes.
-        """
-        # Get probability gradient
-        probs = np.exp(logits - np.max(logits, axis=1, keepdims=True))
-        probs = probs / probs.sum(axis=1, keepdims=True)
-        
-        d_logits = probs.copy()
-        for i, t in enumerate(targets):
-            d_logits[i, t] -= 1
-        
-        # Simplified gradients (real training uses autograd)
-        seq_len = logits.shape[0]
-        
-        self.gradients = {
-            'W_out': np.dot(d_logits.T, np.dot(np.eye(seq_len), logits)).T / seq_len,
-            'W_attn': np.random.randn(*self.params['W_attn'].shape) * 0.01,
-            'W_pos': np.random.randn(*self.params['W_pos'].shape) * 0.001,
-            'W_embed': np.random.randn(*self.params['W_embed'].shape) * 0.001,
-        }
-        
-        return self.gradients
-
-def train_model(model, data, optimizer, num_epochs=10):
-    """
-    Training loop.
-    
-    REAL-WORLD EXAMPLE: Chef's Training Schedule
-    ============================================
-    
-    model = The chef trainee
-    data = Recipe book with examples
-    optimizer = Learning method (SGD/Adam)
-    num_epochs = How many times through the recipe book
-    
-    Each epoch:
-    1. Cook each recipe (forward pass)
-    2. Taste and compare (compute loss)
-    3. Analyze what went wrong (backprop)
-    4. Adjust technique (optimizer step)
-    
-    After each epoch, chef gets better!
-    
-    Args:
-        model: Model to train
-        data: List of (input_tokens, target_tokens) pairs
-        optimizer: Optimizer instance
-        num_epochs: Number of training epochs
-    
-    Returns:
-        losses: List of average loss per epoch
-    """
-    print("\n" + "="*50)
-    print("🍳 Starting Chef Training")
-    print("="*50)
-    print(f"  Recipes in book: {len(data)}")
-    print(f"  Training epochs: {num_epochs}")
-    print(f"  Optimizer: {type(optimizer).__name__}")
-    print("="*50)
-    
-    losses = []
-    
-    for epoch in range(num_epochs):
-        epoch_loss = 0
-        
-        for input_tokens, target_tokens in data:
-            # Forward pass (cook the dish)
-            logits = model.forward(input_tokens)
-            
-            # Compute loss (taste and compare)
-            loss, _ = cross_entropy_loss(logits, target_tokens)
-            epoch_loss += loss
-            
-            # Backward pass (analyze mistakes)
-            model.compute_gradients(logits, target_tokens)
-            
-            # Update weights (adjust technique)
-            for param_name in model.params:
-                if param_name in model.gradients:
-                    model.params[param_name] = optimizer.update(
-                        param_name,
-                        model.params[param_name],
-                        model.gradients[param_name]
-                    )
-        
-        avg_loss = epoch_loss / len(data)
-        losses.append(avg_loss)
-        
-        # Progress indicator
-        emoji = "📈" if epoch == 0 else "📉" if loss < losses[-2] else "➡️"
-        print(f"{emoji} Epoch {epoch+1}/{num_epochs}: Loss = {avg_loss:.4f}")
-    
-    print("="*50)
-    print("🎓 Training Complete!")
-    print("="*50)
-    
-    return losses
-
-# =============================================================================
-# STEP 5: Training Example
-# =============================================================================
-
-print("\n--- Training Example ---")
-print("="*50)
-print("""
-SCENARIO: Training a mini language model
-
-Dataset: Simple sequences (learning patterns)
-Model: MiniGPT with embeddings and attention
-Goal: Learn to predict next token in sequence
-
-Let's watch the training happen!
-""")
-
-# Create mini dataset
-# Each sequence: learn pattern like "1→2→3→4→5"
-np.random.seed(42)
-vocab_size = 50
-embedding_dim = 16
-
-# Simple training data: sequences and their next tokens
-training_data = [
-    (np.array([1, 2, 3, 4]), np.array([2, 3, 4, 5])),   # Learn: +1 pattern
-    (np.array([5, 6, 7, 8]), np.array([6, 7, 8, 9])),   # Learn: +1 pattern
-    (np.array([10, 11, 12]), np.array([11, 12, 13])),   # Learn: +1 pattern
-    (np.array([1, 5, 10, 15]), np.array([5, 10, 15, 20])), # Learn: +5 pattern
-    (np.array([3, 6, 9, 12]), np.array([6, 9, 12, 15])),   # Learn: +3 pattern
-]
-
-print(f"📚 Training data: {len(training_data)} sequences")
-print(f"📊 Vocabulary size: {vocab_size}")
-print(f"🧠 Embedding dimension: {embedding_dim}")
 
 # Create model
-model = MiniGPTForTraining(vocab_size, embedding_dim)
+model = MiniGPT(vocab_size=10, embedding_dim=16)
+trainer = SimpleTrainer(model, learning_rate=0.01)
 
-# Create optimizer
-optimizer = Adam(learning_rate=0.01)
+# Training data: alternating pattern
+# 0 = "hello", 1 = "world"
+text_tokens = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]
+inputs, targets = create_training_sequences(text_tokens, seq_length=2)
 
-# Train!
-print("\n🚀 Starting training run...")
-losses = train_model(model, training_data, optimizer, num_epochs=20)
+print(f"\nTraining on pattern: hello world hello world...")
+print(f"Number of examples: {len(inputs)}")
 
-# Plot loss curve (text-based)
-print("\n" + "="*70)
-print("📊 Loss Curve Visualization")
-print("="*70)
+# Train
+history = trainer.train(inputs, targets, epochs=20, print_every=5)
 
-max_bar_width = 50
-initial_loss = losses[0]
-
-for epoch, loss in enumerate(losses):
-    normalized = loss / initial_loss
-    bar_width = max(1, int(normalized * max_bar_width))
-    bar = "█" * bar_width
-    trend = "📉" if epoch > 0 and loss < losses[epoch-1] else "📈" if epoch > 0 and loss > losses[epoch-1] else "➡️"
-    print(f"Epoch {epoch+1:2d}: {loss:.4f} {bar} {trend}")
-
-print("\n" + "-"*70)
-print("GOOD TRAINING SIGNS:")
-print("-"*70)
-print("""
-✅ Loss decreases over epochs → Learning is happening!
-✅ Loss doesn't explode (NaN) → Training is stable
-✅ Loss converges to stable value → Model has learned patterns
-
-In real GPT training:
-- GPT-2: Trained for ~100 epochs on billions of tokens
-- Loss starts around 10.0, ends around 2-3
-- Takes weeks on hundreds of GPUs!
-- Cost: $50,000+ in compute time
-
-Our mini model:
-- Trained on 5 sequences (vs billions for GPT)
-- Loss decreased → Model learned SOMETHING!
-- Would need more data for generalization
-=============================================================================""")
+print("\n" + "-"*50)
+print("Training Progress:")
+print("-"*50)
+for i, (loss, ppl) in enumerate(zip(history['loss'], history['perplexity'])):
+    bar = "#" * min(int(20 * (1 - loss/3)), 20)
+    print(f"Epoch {i+1:2d}: Loss={loss:.3f} PPL={ppl:.2f} {bar}")
 
 # =============================================================================
-# STEP 6: Training Considerations
-# =============================================================================
-
-print("\n" + "="*70)
-print("STEP 6: Real-World Training Considerations")
-print("="*70)
-
-print("""
-REAL TRAINING DIFFERENCES:
-==========================
-
-1. AUTOGRAD (Automatic Differentiation):
-   - We computed gradients manually (simplified)
-   - PyTorch/TensorFlow: gradients computed automatically
-   - Just call loss.backward() and it happens!
-   - Much more efficient and accurate
-
-2. BATCHING:
-   - Process multiple sequences in parallel
-   - Better GPU utilization (GPUs love parallelism)
-   - More stable gradients (average over batch)
-   - Typical batch size: 512-2048
-
-3. GRADIENT CLIPPING:
-   - Large gradients can cause instability
-   - Clip to max value (e.g., 1.0)
-   - Essential for transformer training
-   - Prevents "gradient explosion"
-
-4. LEARNING RATE SCHEDULE:
-   - Warmup: Start small (0.0001), increase to 0.001
-   - Prevents early instability
-   - Decay: Gradually decrease after peak
-   - Helps fine-tuning at the end
-
-5. MIXED PRECISION TRAINING:
-   - Use FP16 instead of FP32
-   - 2x memory savings
-   - Faster computation (Tensor Cores)
-   - Requires loss scaling for stability
-
-6. DISTRIBUTED TRAINING:
-   - Data parallelism: Split batch across GPUs
-   - Model parallelism: Split model across GPUs
-   - Pipeline parallelism: Split layers across GPUs
-   - GPT-3 used all three!
-
-7. CHECKPOINTING:
-   - Save model every N steps
-   - Resume from failures (training takes weeks!)
-   - Track best model (lowest validation loss)
-
-8. VALIDATION:
-   - Hold out some data for validation
-   - Check if model generalizes (not just memorizing)
-   - Early stopping if validation loss increases
-
-TYPICAL GPT TRAINING SETUP:
-===========================
-
-Dataset:
-- 300-500 GB of text
-- Web pages, books, articles, code
-- Carefully filtered and cleaned
-
-Hardware:
-- 256-1024 GPUs (NVIDIA A100/V100)
-- High-speed interconnect (NVLink)
-- Petabytes of storage
-
-Training:
-- Batch size: 512-2048 sequences
-- Sequence length: 1024-4096 tokens
-- Training steps: 100,000 - 1,000,000
-- Time: Days to weeks
-- Cost: $50,000 - $2,000,000+
-
-That's why only big companies train foundation models!
-=============================================================================""")
-
-# =============================================================================
-# SUMMARY
+# SUMMARY: Training GPT
 # =============================================================================
 
 print("\n" + "="*70)
@@ -1095,122 +704,104 @@ print("SUMMARY: Training GPT")
 print("="*70)
 
 print("""
-REAL-WORLD ANALOGIES RECAP:
-===========================
+WHAT WE LEARNED:
+================
+1. Cross-Entropy Loss - Measures prediction error
+2. Softmax - Converts scores to probabilities
+3. Training Data - Create input/target pairs
+4. Training Loop - Forward, loss, backward, update
+5. Perplexity - Model confidence metric
 
-1. WEATHER FORECAST SCORING:
-   - Cross-entropy loss = forecast accuracy
-   - Confident + correct = low loss
-   - Confident + wrong = high loss!
+COMPLETE TRAINING FLOW:
+=======================
 
-2. HIKING DOWN MOUNTAIN:
-   - Gradient = slope under your feet
-   - Go opposite direction of gradient
-   - Backprop = chain of people passing messages
+1. PREPARE DATA
+   Text -> Tokenize -> Create sequences
+   
+2. INITIALIZE MODEL
+   Random weights ready for learning
+   
+3. TRAINING LOOP (many epochs)
+   For each batch:
+   a) Forward pass: Predict next token
+   b) Compute loss: Cross-entropy
+   c) Backward pass: Compute gradients
+   d) Update weights: Gradient descent
+   
+4. EVALUATE
+   Compute perplexity on held-out data
+   
+5. GENERATE
+   Use trained model to generate text!
 
-3. DART THROWING:
-   - SGD = simple adjustment
-   - Adam = smart, adaptive adjustment
-   - Learning rate = how big to adjust
+REAL-WORLD TRAINING (GPT-2):
+============================
+- Data: 40GB of text (WebText)
+- Tokens: ~8 billion tokens
+- Batch size: 512 sequences
+- Training time: Days on GPUs
+- Compute: Massive parallel processing
 
-4. COOKING SCHOOL:
-   - Epoch = one pass through recipe book
-   - Batch = practice multiple recipes
-   - Training = learning from mistakes
+OUR DEMO:
+- Data: 12 tokens
+- Tokens: 12 tokens
+- Batch size: All examples
+- Training time: Seconds
+- Compute: Single CPU core
 
-TRAINING PROCESS:
-=================
+Same principles, different scale!
 
-1. FORWARD PASS: Model predicts next tokens
-2. LOSS: Cross-entropy measures prediction quality
-3. BACKWARD PASS: Compute gradients (backprop)
-4. OPTIMIZER: Update weights (Adam recommended)
-5. REPEAT: Until loss converges
+NEXT: Text Generation
+=====================
+Now we can train GPT!
+Next, we learn to GENERATE text:
+- Greedy decoding (pick best)
+- Sampling (pick randomly)
+- Top-k sampling (pick from best k)
+- Temperature (adjust randomness)
 
-KEY COMPONENTS:
-===============
-
-LOSS FUNCTION:
-- Cross-entropy: -log(P(correct_token))
-- Lower = better predictions
-
-OPTIMIZERS:
-- SGD: Simple, uniform updates
-- Adam: Adaptive, best for transformers
-
-HYPERPARAMETERS:
-- Learning rate: 0.0001 - 0.001 (Adam)
-- Batch size: 512 - 2048
-- Epochs: 10 - 100+
-
-CHALLENGES:
-- Computational cost (needs GPUs)
-- Memory requirements
-- Training stability
-- Convergence time
-
-NEXT: Text generation - using our trained model!
+Next: 08_generation.py
 =============================================================================""")
-
-# =============================================================================
-# EXERCISE
-# =============================================================================
 
 print("\n" + "="*70)
 print("EXERCISE: Experiment with Training")
 print("="*70)
 
 print("""
-REAL-WORLD EXPERIMENTS:
-=======================
+Try these experiments:
 
 1. CHANGE LEARNING RATE:
-   optimizer = Adam(learning_rate=0.001)  # Smaller, slower but stable
-   optimizer = Adam(learning_rate=0.1)    # Larger, faster but risky!
+   trainer = SimpleTrainer(model, learning_rate=0.1)  # Faster
+   trainer = SimpleTrainer(model, learning_rate=0.001)  # Slower
    
-   Question: How does training change?
-   Expectation: Too small = slow, too large = unstable
+   Question: How does LR affect training?
+   Answer: High = fast but unstable, Low = slow but stable
 
-2. MORE TRAINING DATA:
-   Add more sequences to training_data
-   Try: (np.array([20, 25, 30]), np.array([25, 30, 35]))
+2. CHANGE SEQUENCE LENGTH:
+   inputs, targets = create_training_sequences(tokens, seq_length=4)
    
-   Question: Does more data help?
-   Expectation: Yes, but needs more epochs
+   Question: How does context length affect learning?
+   Answer: Longer = more context, but harder to train
 
 3. MORE EPOCHS:
-   train_model(model, data, optimizer, num_epochs=50)
+   history = trainer.train(inputs, targets, epochs=100)
    
-   Question: Does loss keep decreasing?
-   Expectation: Eventually plateaus (diminishing returns)
+   Question: Does more training always help?
+   Answer: Eventually overfitting occurs!
 
-4. DIFFERENT OPTIMIZER:
-   optimizer = SimpleSGD(learning_rate=0.01)
+4. DIFFERENT PATTERNS:
+   text_tokens = [0, 0, 1, 0, 0, 1, 0, 0, 1]  # Different pattern
    
-   Question: SGD vs Adam - which is better?
-   Expectation: Adam converges faster and more stable
-
-5. VISUALIZE GRADIENTS:
-   Print gradient statistics during training:
-   print(f"Gradient norm: {np.linalg.norm(grad):.4f}")
-   
-   Question: How do gradients change during training?
-   Expectation: Get smaller as model improves
-
-6. LEARNING RATE SWEEP:
-   Try: [0.0001, 0.001, 0.01, 0.1]
-   Plot final loss for each
-   
-   Question: What's the best learning rate?
-   Expectation: Goldilocks zone (not too small, not too large)
+   Question: Can model learn any pattern?
+   Answer: Simple patterns yes, complex need more capacity!
 
 KEY TAKEAWAY:
 =============
-- Training minimizes cross-entropy loss
-- Gradients tell weights how to change
-- Optimizers apply gradients intelligently
-- Adam is the go-to optimizer for transformers
-- Real training needs GPUs and weeks of time!
+Training = Iterative improvement through feedback!
+- Forward pass makes predictions
+- Loss measures errors
+- Backward pass computes corrections
+- Updates improve future predictions
 
-Next: 08_generation.py - Text generation strategies!
+This is how GPT learns language patterns!
 =============================================================================""")

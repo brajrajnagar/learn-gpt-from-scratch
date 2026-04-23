@@ -1,6 +1,6 @@
 """
 =============================================================================
-LESSON 5: The Complete Transformer Block
+LESSON 5: The Complete Transformer Block - Building GPT's Core Unit
 =============================================================================
 
 Now we combine everything to build the fundamental unit of GPT:
@@ -29,7 +29,7 @@ import numpy as np
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 1: Layer Normalization")
+print("STEP 1: Layer Normalization - Stabilizing Training")
 print("="*70)
 
 print("""
@@ -37,20 +37,15 @@ REAL-WORLD EXAMPLE: Calibrating Measurement Instruments
 ========================================================
 
 Imagine a science lab with multiple measurement devices:
-- Thermometer (temperature)
-- Scale (weight)
-- Ruler (length)
-- Voltmeter (voltage)
+- Thermometer (temperature): -10 to 40 degrees
+- Scale (weight): 0 to 1000 grams
+- Voltmeter (voltage): 0 to 220 volts
 
 PROBLEM: Each device uses different scales!
-- Temperature: -10 to 40 degrees Celsius
-- Weight: 0 to 1000 grams
-- Voltage: 0 to 220 volts
-
-If you feed these directly into a machine learning model:
+If you feed these directly into ML model:
 - Large values dominate (voltage 220 >> temperature 25)
 - Training becomes unstable
-- Model struggles to learn from all features equally
+- Model struggles to learn equally from all features
 
 SOLUTION: Normalize all measurements to the same scale!
 
@@ -58,9 +53,9 @@ LAYER NORMALIZATION WORKS LIKE THIS:
 
 For each token's embedding vector:
 1. Compute mean and standard deviation
-2. Subtract mean → centers at 0
-3. Divide by std → scales to unit variance
-4. Apply learned scale (γ) and shift (β)
+2. Subtract mean -> centers at 0
+3. Divide by std -> scales to unit variance
+4. Apply learned scale (gamma) and shift (beta)
 
 Result: All features are on comparable scales!
 
@@ -69,19 +64,11 @@ BENEFITS:
 - More stable training (no exploding/vanishing)
 - Less sensitive to initialization
 - Works with any batch size
-
-WHY "LAYER" NORMALIZATION?
-- Normalizes across features within ONE sample
-- Different from BatchNorm (normalizes across samples)
-- Perfect for sequence models like GPT
 =============================================================================""")
 
 class LayerNorm:
     """
-    Layer Normalization.
-    
-    REAL-WORLD EXAMPLE: Audio Volume Normalizer
-    ===========================================
+    Layer Normalization - Like an audio volume normalizer.
     
     Think of LayerNorm like an audio engineer normalizing song volumes:
     
@@ -94,32 +81,26 @@ class LayerNorm:
     1. Measure average volume (mean)
     2. Measure dynamic range (variance)
     3. Adjust to standard level (normalize)
-    4. Apply custom EQ (learnable γ and β)
+    4. Apply custom EQ (learnable gamma and beta)
     
     RESULT: All songs play at similar perceived volume!
-    
-    In neural networks:
-    - Each token embedding = one "song"
-    - Each feature dimension = one "frequency"
-    - LayerNorm = audio engineer for activations
     """
     
     def __init__(self, embedding_dim, eps=1e-5):
         """
         Args:
             embedding_dim: Dimension of input
-            eps: Small constant for numerical stability (prevents division by zero)
+            eps: Small constant for numerical stability
         """
         self.embedding_dim = embedding_dim
         self.eps = eps
         
-        # Learnable parameters
-        # These let the network undo normalization if needed!
+        # Learnable parameters - like volume and tone knobs
         self.gamma = np.ones(embedding_dim)  # Scale (like volume knob)
         self.beta = np.zeros(embedding_dim)  # Shift (like bass/treble)
         
         print(f"LayerNorm initialized for dim={embedding_dim}")
-        print(f"  → Like having {embedding_dim} independent volume knobs")
+        print(f"  -> Like having {embedding_dim} independent volume knobs")
     
     def forward(self, x):
         """
@@ -147,20 +128,15 @@ class LayerNorm:
             Normalized output, same shape as input
         """
         # Step 1: Compute mean across embedding dimension
-        # Like computing class average
         mean = np.mean(x, axis=-1, keepdims=True)
         
         # Step 2: Compute variance
-        # Like computing how spread out grades are
         var = np.var(x, axis=-1, keepdims=True)
         
         # Step 3: Normalize (z-score normalization)
-        # Now all features have mean=0, variance=1
         x_norm = (x - mean) / np.sqrt(var + self.eps)
         
         # Step 4: Scale and shift (learnable)
-        # This restores representational power!
-        # If network needs original scale, it can learn γ=std, β=mean
         output = self.gamma * x_norm + self.beta
         
         return output
@@ -184,40 +160,34 @@ play at similar perceived volume!
 # Create LayerNorm
 layer_norm = LayerNorm(embedding_dim=8)
 
-# Sample input (sequence of 5 tokens, 8-dim each)
-# Simulating "loud" activations (large values with offset)
+# Sample input - simulating "loud" activations
 np.random.seed(42)
 x = np.random.randn(5, 8) * 10 + 5  # Mean ~5, Std ~10
 
 print(f"\nInput (before normalization):")
-print(f"  Mean: {x.mean():.4f} ← Like a 'loud' audio track")
-print(f"  Std: {x.std():.4f} ← High dynamic range")
-print(f"  Min: {x.min():.4f}")
-print(f"  Max: {x.max():.4f}")
+print(f"  Mean: {x.mean():.4f} <- Like a 'loud' audio track")
+print(f"  Std: {x.std():.4f} <- High dynamic range")
 
 # Normalize
 x_norm = layer_norm.forward(x)
 
 print(f"\nOutput (after LayerNorm):")
-print(f"  Mean: {x_norm.mean():.4f} ← Centered at 0")
-print(f"  Std: {x_norm.std():.4f} ← Normalized to ~1")
-print(f"  Min: {x_norm.min():.4f}")
-print(f"  Max: {x_norm.max():.4f}")
+print(f"  Mean: {x_norm.mean():.4f} <- Centered at 0")
+print(f"  Std: {x_norm.std():.4f} <- Normalized to ~1")
 
-print("\n✓ LayerNorm normalizes each token's embedding!")
-print("  This keeps training stable across all layers!")
+print("\n[OK] LayerNorm normalizes each token's embedding!")
 
 # =============================================================================
-# STEP 2: Feed-Forward Network
+# STEP 2: Feed-Forward Network (FFN)
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 2: Feed-Forward Network (FFN)")
+print("STEP 2: Feed-Forward Network - The Processing Factory")
 print("="*70)
 
 print("""
 REAL-WORLD EXAMPLE: Information Processing Factory
-===================================================
+==================================================
 
 After attention gathers information, the Feed-Forward Network
 (PROCESSING DEPARTMENT) analyzes and transforms it.
@@ -226,11 +196,11 @@ FACTORY ANALOGY:
 
 INPUT DEPARTMENT (Attention Output):
   Raw materials arrive from suppliers
-  Shape: (seq_len, embedding_dim) = (5 tokens, 768 features)
+  Shape: (seq_len, embedding_dim)
 
 EXPANSION DEPARTMENT (Linear 1):
-  Materials are unpackED and spread out
-  768 features → 3072 features (4x expansion!)
+  Materials are unpacked and spread out
+  768 features -> 3072 features (4x expansion!)
   Like unfolding a packed suitcase
 
 PROCESSING FLOOR (ReLU Activation):
@@ -240,7 +210,7 @@ PROCESSING FLOOR (ReLU Activation):
 
 COMPRESSION DEPARTMENT (Linear 2):
   Processed materials are repacked
-  3072 features → 768 features (back to original size)
+  3072 features -> 768 features (back to original size)
   Like repacking with new organization
 
 OUTPUT DEPARTMENT:
@@ -251,7 +221,6 @@ WHY 4X EXPANSION?
 - Gives room for complex processing
 - Like having a large workbench
 - More space = more sophisticated transformations
-- Common design choice in transformers
 
 KEY INSIGHT: FFN processes EACH TOKEN INDEPENDENTLY
 - Token 0: Processed by same FFN as token 1
@@ -262,9 +231,6 @@ KEY INSIGHT: FFN processes EACH TOKEN INDEPENDENTLY
 class FeedForward:
     """
     Feed-Forward Network for transformer.
-    
-    REAL-WORLD EXAMPLE: Photo Filter App
-    =====================================
     
     Think of FFN like applying filters to photos:
     
@@ -280,8 +246,6 @@ class FeedForward:
     - Combine filter results
     - Produce final enhanced photo
     - Output: Same size as input (768,)
-    
-    The "filters" are learned during training!
     """
     
     def __init__(self, embedding_dim, ff_dim):
@@ -294,7 +258,6 @@ class FeedForward:
         self.ff_dim = ff_dim
         
         # Two linear layers with ReLU in between
-        # He initialization helps ReLU networks train better
         np.random.seed(42)
         self.W1 = np.random.randn(embedding_dim, ff_dim) * np.sqrt(2.0 / embedding_dim)
         self.b1 = np.zeros(ff_dim)
@@ -305,7 +268,6 @@ class FeedForward:
         print(f"  Input dim: {embedding_dim}")
         print(f"  Hidden dim: {ff_dim} ({ff_dim/embedding_dim:.0f}x expansion)")
         print(f"  Output dim: {embedding_dim}")
-        print(f"  Parameters: {embedding_dim * ff_dim * 2}")
     
     def forward(self, x):
         """
@@ -313,19 +275,16 @@ class FeedForward:
         
         REAL-WORLD EXAMPLE: Document Translation Pipeline
         --------------------------------------------------
-        Imagine translating documents through an intermediate form:
-        
         Step 1: Expand to intermediate representation
-                English → Universal semantic form
-                Shape: (seq_len, 768) → (seq_len, 3072)
+                English -> Universal semantic form
+                Shape: (seq_len, 768) -> (seq_len, 3072)
         
         Step 2: Apply non-linear activation (ReLU)
                 Keep only meaningful semantic features
-                Like keeping only relevant concepts
         
         Step 3: Compress to output
-                Universal form → Translated English
-                Shape: (seq_len, 3072) → (seq_len, 768)
+                Universal form -> Translated English
+                Shape: (seq_len, 3072) -> (seq_len, 768)
         
         Args:
             x: Input, shape (seq_len, embedding_dim)
@@ -334,12 +293,10 @@ class FeedForward:
             Output, shape (seq_len, embedding_dim)
         """
         # First linear layer + ReLU
-        # Expand and activate
         hidden = np.dot(x, self.W1) + self.b1
-        hidden = np.maximum(0, hidden)  # ReLU: Keep positive, zero negative
+        hidden = np.maximum(0, hidden)  # ReLU
         
         # Second linear layer
-        # Compress back to original dimension
         output = np.dot(hidden, self.W2) + self.b2
         
         return output
@@ -360,38 +317,32 @@ Think of this like summarizing a long document:
 The document length stays same, but content is refined!
 """)
 
-# Create FFN (GPT-2 style ratio: 64 → 256 → 64)
+# Create FFN (GPT-2 style ratio: 64 -> 256 -> 64)
 ffn = FeedForward(embedding_dim=64, ff_dim=256)
 
-# Sample input (5 tokens, 64-dim each)
+# Sample input
 x = np.random.randn(5, 64)
 print(f"\nInput shape: {x.shape}")
-print(f"  → 5 tokens, each with 64 features")
 
 # Forward pass - trace through the network
 hidden = np.dot(x, ffn.W1) + ffn.b1
-print(f"\nAfter expansion (Linear 1):")
-print(f"  Shape: {hidden.shape}")
-print(f"  → Expanded to 256 features (4x!)")
+print(f"\nAfter expansion (Linear 1): Shape = {hidden.shape}")
 
 hidden_relu = np.maximum(0, hidden)
 active_pct = (hidden_relu > 0).sum() / hidden_relu.size * 100
-print(f"\nAfter ReLU activation:")
-print(f"  Active neurons: {active_pct:.1f}%")
-print(f"  → ReLU zeroed out negative values")
+print(f"After ReLU: {active_pct:.1f}% neurons active")
 
 output = np.dot(hidden_relu, ffn.W2) + ffn.b2
-print(f"\nAfter compression (Linear 2):")
-print(f"  Output shape: {output.shape}")
-print(f"  → Back to original 64 features!")
-print(f"  → But now transformed with new information!")
+print(f"After compression (Linear 2): Shape = {output.shape}")
+
+print("\n[OK] FFN expands, processes, and compresses back!")
 
 # =============================================================================
 # STEP 3: Residual Connections
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 3: Residual Connections")
+print("STEP 3: Residual Connections - The Gradient Highway")
 print("="*70)
 
 print("""
@@ -400,15 +351,15 @@ REAL-WORLD EXAMPLE: Mountain Hiking Trail with Shortcuts
 
 Imagine hiking up a 100-layer mountain (like a 100-layer neural network):
 
-WITHOUT RESidual (Normal Trail):
-  Layer 1 → Layer 2 → Layer 3 → ... → Layer 100
+WITHOUT RESIDUAL (Normal Trail):
+  Layer 1 -> Layer 2 -> Layer 3 -> ... -> Layer 100
   
   Problem: If any section is blocked (bad gradient),
   you can't continue! You're stuck!
 
 WITH RESIDUAL (Shortcut Paths):
-  Layer 1 → Layer 2 → Layer 3 → ... → Layer 100
-     ↓         ↓         ↓              ↓
+  Layer 1 -> Layer 2 -> Layer 3 -> ... -> Layer 100
+     |         |         |              |
   Shortcut paths let you skip sections!
   
   Benefit: Even if one section is hard, you can skip ahead!
@@ -428,18 +379,18 @@ WHY RESIDUALS WORK:
 
 1. GRADIENT HIGHWAY:
    Gradients can flow directly through skip connections
-   → No vanishing gradient problem
-   → Can train very deep networks (100+ layers!)
+   -> No vanishing gradient problem
+   -> Can train very deep networks (100+ layers!)
 
 2. EASY IDENTITY:
    Network can learn "do nothing" easily
-   → Just set F(input) = 0
-   → Output = 0 + input = input (identity)
+   -> Just set F(input) = 0
+   -> Output = 0 + input = input (identity)
 
 3. STABLE TRAINING:
    Each layer makes small modifications
-   → Prevents dramatic changes
-   → Training is more predictable
+   -> Prevents dramatic changes
+   -> Training is more predictable
 
 IN TRANSFORMER/GPT:
   - After attention: output = LayerNorm(x + Attention(x))
@@ -452,8 +403,6 @@ def residual_connection(x, sublayer_output):
     """
     Add residual connection.
     
-    REAL-WORLD EXAMPLE: Original Document + Annotations
-    ----------------------------------------------------
     Think of residual connection like annotating a document:
     
     Original document (x):
@@ -479,43 +428,29 @@ def residual_connection(x, sublayer_output):
 
 print("\n--- Residual Connection Example: Document Annotation ---")
 print("="*50)
-print("""
-SCENARIO: Adding annotations to documents while preserving original
-
-Original document (x): Contains full content
-Annotations (sublayer_output): Small additions/modifications
-Combined: Original + annotations = Enhanced document
-""")
 
 # Sample input (original document)
 np.random.seed(42)
 x = np.random.randn(3, 8)
 print(f"Original input shape: {x.shape}")
-print(f"  Mean: {x.mean():.4f}, Std: {x.std():.4f}")
 
 # Simulate sublayer output (annotations - small modifications)
-sublayer_out = np.random.randn(3, 8) * 0.1  # Small values (subtle annotations)
-print(f"\nSublayer output (annotations):")
-print(f"  Mean: {sublayer_out.mean():.4f}, Std: {sublayer_out.std():.4f}")
-print(f"  → Small modifications, not replacing content")
+sublayer_out = np.random.randn(3, 8) * 0.1
+print(f"Sublayer output (annotations): Shape = {sublayer_out.shape}")
 
 # Add residual (combine original + annotations)
 output = residual_connection(x, sublayer_out)
 
-print(f"\nResidual output (enhanced document):")
-print(f"  Mean: {output.mean():.4f}, Std: {output.std():.4f}")
-print(f"  → Original content preserved!")
-print(f"  → Annotations added subtly")
+print(f"Residual output (enhanced document): Shape = {output.shape}")
 
-print("\n✓ Residual connections let original signal flow through!")
-print("  This prevents information loss in deep networks!")
+print("\n[OK] Residual connections let original signal flow through!")
 
 # =============================================================================
 # STEP 4: Complete Transformer Block
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 4: Complete Transformer Block")
+print("STEP 4: Complete Transformer Block - The Core of GPT")
 print("="*70)
 
 print("""
@@ -530,55 +465,45 @@ The Transformer Block is a complete processing unit that combines:
 
 FACTORY LAYOUT:
 
-                    ┌─────────────────────────────────┐
-                    │     TRANSFORMER BLOCK           │
-                    │     (Processing Unit)           │
-                    └─────────────────────────────────┘
+                    [TRANSFORMER BLOCK]
+                    (Processing Unit)
 
 INPUT RAW MATERIALS (x)
-    │
-    ├────────────────────────────────────┐
-    │                                    │
-    ↓                                    │
-┌─────────────────┐                      │
-│ LAYER NORM 1    │ ← Normalize          │
-│ (Calibration)   │   activations        │
-└─────────────────┘                      │
-    │                                    │
-    ↓                                    │
-┌─────────────────┐                      │
-│ MULTI-HEAD      │ ← Gather info        │
-│ ATTENTION       │   from context       │
-└─────────────────┘                      │
-    │                                    │
-    ↓                                    │
-    + ←──────────────────────────────────┘  (RESIDUAL: Add back original)
-    │
-    ├────────────────────────────────────┐
-    │                                    │
-    ↓                                    │
-┌─────────────────┐                      │
-│ LAYER NORM 2    │ ← Normalize          │
-│ (Calibration)   │   again              │
-└─────────────────┘                      │
-    │                                    │
-    ↓                                    │
-┌─────────────────┐                      │
-│ FEED-FORWARD    │ ← Process            │
-│ NETWORK         │   independently      │
-└─────────────────┘                      │
-    │                                    │
-    ↓                                    │
-    + ←──────────────────────────────────┘  (RESIDUAL: Add back again)
-    │
-    ↓
+    |
+    +--------------------------------+
+    |                                |
+    v                                |
+[LAYER NORM 1] <- Normalize          |
+(Calibration)   activations          |
+    |                                |
+    v                                |
+[MULTI-HEAD   ] <- Gather info       |
+[ATTENTION    ]   from context       |
+    |                                |
+    v                                |
+    + <-[ADD BACK ORIGINAL]----------+  (RESIDUAL)
+    |
+    +--------------------------------+
+    |                                |
+    v                                |
+[LAYER NORM 2] <- Normalize          |
+(Calibration)   again                |
+    |                                |
+    v                                |
+[FEED-FORWARD ] <- Process           |
+[NETWORK      ]   independently      |
+    |                                |
+    v                                |
+    + <-[ADD BACK ORIGINAL]----------+  (RESIDUAL)
+    |
+    v
 OUTPUT PROCESSED MATERIALS (x)
 
 KEY INSIGHT: Input and output have SAME SHAPE!
 This allows stacking multiple blocks!
 =============================================================================""")
 
-# First, we need the MultiHeadAttention class (import from previous lesson)
+# Helper functions
 def softmax(x):
     """Numerically stable softmax."""
     x_max = np.max(x, axis=-1, keepdims=True)
@@ -593,8 +518,20 @@ def create_causal_mask(seq_len):
             mask[i, j] = -1e9
     return mask
 
+def split_heads(x, num_heads, head_dim):
+    """Split embeddings among heads."""
+    seq_len = x.shape[0]
+    x = x.reshape(seq_len, num_heads, head_dim)
+    return x.transpose(1, 0, 2)
+
+def combine_heads(x, num_heads, embedding_dim):
+    """Combine head outputs back together."""
+    x = x.transpose(1, 0, 2)
+    seq_len = x.shape[0]
+    return x.reshape(seq_len, embedding_dim)
+
 class MultiHeadAttention:
-    """Multi-head attention layer."""
+    """Multi-head attention layer (from Lesson 4)."""
     
     def __init__(self, embedding_dim, num_heads):
         self.embedding_dim = embedding_dim
@@ -607,16 +544,6 @@ class MultiHeadAttention:
         self.W_v = np.random.randn(embedding_dim, embedding_dim) * 0.1
         self.W_o = np.random.randn(embedding_dim, embedding_dim) * 0.1
     
-    def _split_heads(self, x):
-        seq_len = x.shape[0]
-        x = x.reshape(seq_len, self.num_heads, self.head_dim)
-        return x.transpose(1, 0, 2)
-    
-    def _combine_heads(self, x):
-        x = x.transpose(1, 0, 2)
-        seq_len = x.shape[0]
-        return x.reshape(seq_len, self.embedding_dim)
-    
     def forward(self, embeddings, use_causal_mask=True):
         seq_len = embeddings.shape[0]
         
@@ -624,9 +551,9 @@ class MultiHeadAttention:
         K = np.dot(embeddings, self.W_k)
         V = np.dot(embeddings, self.W_v)
         
-        Q_heads = self._split_heads(Q)
-        K_heads = self._split_heads(K)
-        V_heads = self._split_heads(V)
+        Q_heads = split_heads(Q, self.num_heads, self.head_dim)
+        K_heads = split_heads(K, self.num_heads, self.head_dim)
+        V_heads = split_heads(V, self.num_heads, self.head_dim)
         
         mask = create_causal_mask(seq_len) if use_causal_mask else None
         
@@ -644,7 +571,7 @@ class MultiHeadAttention:
             head_outputs.append(output)
         
         combined = np.stack(head_outputs, axis=0)
-        combined = self._combine_heads(combined)
+        combined = combine_heads(combined, self.num_heads, self.embedding_dim)
         output = np.dot(combined, self.W_o)
         
         return output
@@ -653,63 +580,46 @@ class TransformerBlock:
     """
     Complete Transformer Block (Decoder Layer).
     
-    REAL-WORLD EXAMPLE: Complete Document Processing Station
-    =========================================================
-    
     This is the fundamental building block of GPT!
     
     Think of it as a document processing station:
     
-    1. CALIBRATION (LayerNorm 1):
-       Normalize the document for consistent processing
-    
-    2. RESEARCH (Multi-Head Attention):
-       Look up related documents, find connections
-       "What does 'it' refer to?"
-       "Which words are related?"
-    
-    3. ANNOTATION (Residual):
-       Add research notes to original document
-    
-    4. CALIBRATION (LayerNorm 2):
-       Normalize again for next stage
-    
-    5. ANALYSIS (Feed-Forward Network):
-       Process each document independently
-       Extract insights, add understanding
-    
-    6. ANNOTATION (Residual):
-       Add analysis notes to document
+    1. CALIBRATION (LayerNorm 1): Normalize for consistent processing
+    2. RESEARCH (Multi-Head Attention): Look up related documents
+    3. ANNOTATION (Residual): Add research notes to original
+    4. CALIBRATION (LayerNorm 2): Normalize again for next stage
+    5. ANALYSIS (Feed-Forward Network): Process independently
+    6. ANNOTATION (Residual): Add analysis notes to document
     
     OUTPUT: Enhanced document with context and analysis!
     
     Architecture (Pre-LayerNorm):
     
     input
-      │
-      ├─────────────────────────────┐
-      │                             │
-      ↓                             │
-    LayerNorm                       │
-      │                             │
-      ↓                             │
-    Multi-Head Attention (causal)   │
-      │                             │
-      ↓                             │
-      + ←───────────────────────────┘  (Residual)
-      │
-      ├─────────────────────────────┐
-      │                             │
-      ↓                             │
-    LayerNorm                       │
-      │                             │
-      ↓                             │
-    Feed-Forward Network            │
-      │                             │
-      ↓                             │
-      + ←───────────────────────────┘  (Residual)
-      │
-      ↓
+      |
+      +-----------------------------+
+      |                             |
+      v                             |
+    LayerNorm                       |
+      |                             |
+      v                             |
+    Multi-Head Attention (causal)   |
+      |                             |
+      v                             |
+      + <---------------------------+  (Residual)
+      |
+      +-----------------------------+
+      |                             |
+      v                             |
+    LayerNorm                       |
+      |                             |
+      v                             |
+    Feed-Forward Network            |
+      |                             |
+      v                             |
+      + <---------------------------+  (Residual)
+      |
+      v
     output
     """
     
@@ -730,21 +640,15 @@ class TransformerBlock:
         self.attention = MultiHeadAttention(embedding_dim, num_heads)  # Research dept
         self.ffn = FeedForward(embedding_dim, ff_dim)  # Analysis dept
         
-        print(f"TransformerBlock initialized")
+        print(f"\nTransformerBlock initialized")
         print(f"  Embedding dim: {embedding_dim}")
         print(f"  Num heads: {num_heads}")
         print(f"  FF hidden dim: {ff_dim}")
-        print(f"  → Complete processing unit ready!")
+        print(f"  -> Complete processing unit ready!")
     
     def forward(self, x):
         """
         Forward pass through transformer block.
-        
-        REAL-WORLD EXAMPLE: Processing Pipeline
-        ----------------------------------------
-        
-        INPUT: Document embeddings
-               Shape: (seq_len, embedding_dim)
         
         STAGE 1 - ATTENTION SUB-LAYER:
         1. Calibrate (LayerNorm)
@@ -756,26 +660,21 @@ class TransformerBlock:
         5. Analyze content (FFN)
         6. Add analysis to document (Residual)
         
-        OUTPUT: Enhanced embeddings
-                Shape: (seq_len, embedding_dim) - same!
-        
         Args:
             x: Input, shape (seq_len, embedding_dim)
         
         Returns:
             Output, shape (seq_len, embedding_dim)
         """
-        # ATTENTION SUB-LAYER
-        # Pre-LayerNorm → Attention → Residual
+        # ATTENTION SUB-LAYER: Pre-LayerNorm -> Attention -> Residual
         ln1_out = self.ln1.forward(x)
         attn_out = self.attention.forward(ln1_out)
-        x = x + attn_out  # Residual connection (add back original)
+        x = x + attn_out  # Residual connection
         
-        # FEED-FORWARD SUB-LAYER
-        # Pre-LayerNorm → FFN → Residual
+        # FEED-FORWARD SUB-LAYER: Pre-LayerNorm -> FFN -> Residual
         ln2_out = self.ln2.forward(x)
         ffn_out = self.ffn.forward(ln2_out)
-        x = x + ffn_out  # Residual connection (add back original)
+        x = x + ffn_out  # Residual connection
         
         return x
 
@@ -793,19 +692,19 @@ Output: 10 enhanced word embeddings (same shape!)
 print("Initializing transformer block...")
 block = TransformerBlock(embedding_dim=64, num_heads=4, ff_dim=256)
 
-# Sample input (sequence of 10 tokens representing a sentence)
+# Sample input (sequence of 10 tokens)
 np.random.seed(42)
 x = np.random.randn(10, 64)
 print(f"\nInput shape: {x.shape}")
-print(f"  → 10 tokens (words), each with 64 features")
+print(f"  -> 10 tokens (words), each with 64 features")
 
 # Forward pass through the complete block
 print(f"\nRunning forward pass...")
 output = block.forward(x)
 
 print(f"\nOutput shape: {output.shape}")
-print(f"  → Same shape as input!")
-print(f"  → But now each token has CONTEXT + ANALYSIS!")
+print(f"  -> Same shape as input!")
+print(f"  -> But now each token has CONTEXT + ANALYSIS!")
 
 print("\n" + "="*50)
 print("TRANSFORMER BLOCK COMPLETE!")
@@ -836,7 +735,7 @@ This is how GPT builds contextual understanding!
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 5: Stacking Transformer Blocks")
+print("STEP 5: Stacking Transformer Blocks - Building Deep GPT")
 print("="*70)
 
 print("""
@@ -876,7 +775,7 @@ Each block:
 3. Outputs same shape - ready for next block!
 
 Blocks are connected sequentially:
-  input → Block 1 → Block 2 → ... → Block N → output
+  input -> Block 1 -> Block 2 -> ... -> Block N -> output
 
 DEEPER = MORE CAPABLE (but harder to train)
 - Residual connections make deep training possible
@@ -887,9 +786,6 @@ DEEPER = MORE CAPABLE (but harder to train)
 class StackedTransformerBlocks:
     """
     Stack of multiple transformer blocks.
-    
-    REAL-WORLD EXAMPLE: Assembly Line with Multiple Stations
-    ========================================================
     
     Think of this as a factory assembly line:
     
@@ -922,19 +818,15 @@ class StackedTransformerBlocks:
         print("="*50)
         
         for i in range(num_blocks):
-            print(f"Creating block {i+1}/{num_blocks}...")
             block = TransformerBlock(embedding_dim, num_heads, ff_dim)
             self.blocks.append(block)
         
         print(f"\nStackedTransformerBlocks: {num_blocks} blocks created!")
-        print(f"  → Ready to process deep understanding!")
     
     def forward(self, x):
         """
         Forward pass through all blocks.
         
-        REAL-WORLD EXAMPLE: Document Through Review Stages
-        ---------------------------------------------------
         Imagine a document going through multiple review stages:
         
         Reviewer 1: Basic grammar and structure
@@ -980,7 +872,6 @@ stack = StackedTransformerBlocks(num_blocks=3, embedding_dim=64, num_heads=4, ff
 # Forward pass
 x = np.random.randn(8, 64)
 print(f"\nInput shape: {x.shape}")
-print(f"  → 8 tokens, 64 features each")
 
 print(f"\nRunning through all blocks...")
 print("="*50)
@@ -990,167 +881,120 @@ print(f"\n" + "="*50)
 print("FINAL OUTPUT:")
 print("="*50)
 print(f"Shape: {final_output.shape}")
-print(f"  → Same shape as input!")
-print(f"  → But now with DEEP contextual understanding!")
-
-print("\n" + "="*70)
-print("WHAT HAPPENED:")
-print("="*70)
-print("""
-The input passed through 3 transformer blocks:
-
-Block 1: Basic processing
-  - Learned simple patterns
-  - Attended to nearby tokens
-  - Basic feature extraction
-
-Block 2: Intermediate processing
-  - Built on Block 1's understanding
-  - More complex patterns
-  - Medium-range dependencies
-
-Block 3: Advanced processing
-  - Built on Block 2's understanding
-  - Abstract patterns
-  - Long-range dependencies
-
-FINAL RESULT:
-Each token embedding now contains rich contextual information
-gathered from all previous tokens through multiple layers
-of attention and processing!
-
-This is the essence of how GPT understands language!
-=============================================================================""")
+print(f"  -> Same shape as input!")
+print(f"  -> But now with DEEP contextual understanding!")
 
 # =============================================================================
-# SUMMARY
+# SUMMARY: The Complete Transformer Block
 # =============================================================================
 
 print("\n" + "="*70)
-print("SUMMARY: Transformer Block")
+print("SUMMARY: Transformer Block - The Heart of GPT")
 print("="*70)
 
 print("""
-TRANSFORMER BLOCK ARCHITECTURE:
-===============================
+WHAT WE BUILT:
+==============
+1. Layer Normalization - Stabilizes training
+2. Feed-Forward Network - Processes each token
+3. Residual Connections - Enables deep networks
+4. Complete Transformer Block - Combines all components
+5. Stacked Blocks - Creates deep understanding
 
-1. INPUT: (seq_len, embedding_dim)
+HOW THIS CONNECTS TO OUR PREDICTOR:
+===================================
 
-2. ATTENTION SUB-LAYER:
-   - LayerNorm(x)           ← Calibrate
-   - Multi-Head Attention   ← Gather context
-   - x + attention_output   ← Residual (preserve original)
+Complete flow for "The cat ___":
 
-3. FEED-FORWARD SUB-LAYER:
-   - LayerNorm(x)           ← Calibrate again
-   - Feed-Forward Network   ← Process independently
-   - x + ffn_output         ← Residual (preserve original)
+1. INPUT: "The cat"
+   |
+2. EMBEDDINGS (Lesson 2): Token + Position vectors
+   |
+3. TRANSFORMER BLOCK 1 (this lesson):
+   - Multi-Head Attention: Gather context
+   - FFN: Process independently
+   - Residual + LayerNorm: Stabilize
+   |
+4. TRANSFORMER BLOCK 2: Deeper understanding
+   |
+5. ... (more blocks for deeper models)
+   |
+6. TRANSFORMER BLOCK N: Final representations
+   |
+7. OUTPUT LAYER: Predict next word probabilities
 
-4. OUTPUT: (seq_len, embedding_dim)
+HOW THIS CONNECTS TO GPT:
+=========================
 
-KEY DESIGN CHOICES:
-===================
+GPT-2 Small:
+  - num_blocks = 12
+  - embedding_dim = 768
+  - num_heads = 12
+  - ff_dim = 3072 (4x embedding)
+  - Total params: ~117 million
 
-- Pre-LayerNorm: LayerNorm BEFORE sub-layer (more stable)
-- Residual Connections: Enable gradient flow through deep networks
-- Same dimension throughout: Easy to stack blocks
-- 4x FFN expansion: Capacity for complex processing
+GPT-3 Large:
+  - num_blocks = 96
+  - embedding_dim = 12288
+  - num_heads = 96
+  - ff_dim = 49152
+  - Total params: ~175 billion
 
-PARAMETER COUNT (per block, embedding_dim=768, num_heads=12):
-============================================================
+SAME ARCHITECTURE, different scale!
 
-- Attention: 4 × 768² ≈ 2.4 million parameters
-- FFN: 768 × 3072 + 3072 × 768 ≈ 4.7 million parameters
-- LayerNorm: 768 × 2 × 2 ≈ 3,000 parameters (negligible)
-- Total per block: ~7 million parameters
+NEXT: The Complete GPT Model
+============================
+Now we have the transformer block!
+Next, we assemble everything into complete GPT:
+- Input embeddings (token + position)
+- Stack of transformer blocks
+- Output projection (vocabulary logits)
+- Softmax for probabilities
 
-GPT-2 Small (12 blocks): ~84 million parameters
-GPT-2 Medium (24 blocks): ~350 million parameters
-GPT-2 Large (36 blocks): ~760 million parameters
-GPT-2 XL (48 blocks): ~1.5 billion parameters
-
-REAL-WORLD ANALOGIES RECAP:
-===========================
-
-1. LAYER NORM: Audio volume normalizer
-   - Calibrates activations to stable range
-
-2. FEED-FORWARD: Document processing factory
-   - Expands, processes, compresses
-   - Each token processed independently
-
-3. RESIDUAL: Mountain trail with shortcuts
-   - Original signal always preserved
-   - Enables training deep networks
-
-4. TRANSFORMER BLOCK: Complete processing station
-   - Attention gathers context
-   - FFN processes independently
-   - Residuals preserve original
-   - LayerNorm stabilizes everything
-
-5. STACKED BLOCKS: Multi-stage rocket
-   - Each block builds on previous
-   - Deeper = more abstract understanding
-   - Final block = highest-level reasoning
-
-NEXT: We'll add the final output layer to complete GPT!
-      (Token prediction head for language generation)
+Next: 06_gpt_model.py
 =============================================================================""")
-
-# =============================================================================
-# EXERCISE
-# =============================================================================
 
 print("\n" + "="*70)
 print("EXERCISE: Experiment with Transformer Blocks")
 print("="*70)
 
 print("""
-REAL-WORLD EXPERIMENTS:
-=======================
+Try these experiments:
 
-1. CHANGE BLOCK CONFIGURATION:
-   block = TransformerBlock(embedding_dim=128, num_heads=8, ff_dim=512)
+1. CHANGE NUMBER OF BLOCKS:
+   stack = StackedTransformerBlocks(num_blocks=6, ...)
+   
+   Question: How does depth affect processing?
+   Expectation: More blocks = deeper understanding
+
+2. WITHOUT RESIDUAL CONNECTIONS:
+   # Comment out: x = x + attn_out
+   # Comment out: x = x + ffn_out
+   
+   Question: What happens to training?
+   Answer: Gradients vanish, deep networks fail!
+
+3. WITHOUT LAYER NORMALIZATION:
+   # Skip LayerNorm steps
+   
+   Question: How does training change?
+   Answer: Training becomes unstable!
+
+4. DIFFERENT FF EXPANSION RATIOS:
+   ff_dim = 2 * embedding_dim  # Smaller
+   ff_dim = 8 * embedding_dim  # Larger
    
    Question: How does capacity change?
-   Answer: Larger dimensions = more parameters = more learning capacity
-
-2. STACK MORE BLOCKS:
-   stack = StackedTransformerBlocks(num_blocks=6, embedding_dim=64, ...)
-   
-   Question: How does depth affect understanding?
-   Expectation: Deeper = more abstract reasoning
-
-3. ANALYZE OUTPUT STATISTICS:
-   After each block, print mean and std:
-   print(f"After Block {i}: mean={x.mean():.4f}, std={x.std():.4f}")
-   
-   Question: Does LayerNorm keep values stable?
-   Expectation: Yes! Std should stay around 1
-
-4. COMPARE FFN RATIOS:
-   ff_dim = 2 * embedding_dim  # Smaller (less processing)
-   ff_dim = 8 * embedding_dim  # Larger (more processing)
-   
-   Question: How does FFN size affect capacity?
-   Answer: Larger FFN = more transformation capacity
-
-5. VISUALIZE (MENTALLY):
-   Imagine each block as a filter:
-   - Block 1: Removes noise, finds basic patterns
-   - Block 2: Finds relationships between patterns
-   - Block 3: Abstract concepts emerge
-   - ...
-   - Block N: High-level understanding
+   Answer: More capacity = more learning potential
 
 KEY TAKEAWAY:
 =============
-- Transformer block = Attention + FFN + LayerNorm + Residuals
-- Same input/output shape enables stacking
-- Each block builds deeper understanding
-- This is the core building block of GPT!
-- Stack many blocks = deep language understanding!
+Transformer block = Complete processing unit!
+- Attention gathers context
+- FFN processes independently
+- LayerNorm stabilizes
+- Residual enables depth
+- Stack blocks for deep understanding
 
-Next: 06_gpt_model.py - Complete GPT architecture!
+This is the CORE building block of GPT!
 =============================================================================""")

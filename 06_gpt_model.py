@@ -1,6 +1,6 @@
 """
 =============================================================================
-LESSON 6: Complete GPT Model Architecture
+LESSON 6: Complete GPT Model - Assembling the Full Architecture
 =============================================================================
 
 Now we assemble all components into the complete GPT model!
@@ -15,7 +15,7 @@ Think of GPT as a restaurant that serves words:
    
 2. MENU TRANSLATOR (Token Embeddings)
    - Converts order names to kitchen codes
-   - "Margherita Pizza" → Code #42
+   - "Margherita Pizza" -> Code #42
    
 3. SEATING CHART (Position Embeddings)
    - Tracks order sequence (first appetizer, then main, then dessert)
@@ -57,53 +57,61 @@ REAL-WORLD EXAMPLE: Amazon Fulfillment Center
 
 GPT processes language like Amazon processes orders:
 
-┌─────────────────────────────────────────────────────────┐
-│                    GPT MODEL                             │
-│                                                          │
-│  CUSTOMER ORDER ARRIVES (Input token IDs)               │
-│         ↓                                                │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ ORDER TRANSLATOR (Token Embedding)             │     │
-│  │ "Wireless Mouse" → SKU #12345                  │     │
-│  │ Converts IDs to dense vectors                  │     │
-│  └────────────────────────────────────────────────┘     │
-│         ↓                                                │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ WAREHOUSE LOCATION (Position Embedding)        │     │
-│  │ Aisle 1, Shelf 2, Position 3                   │     │
-│  │ Adds sequence position info                    │     │
-│  └────────────────────────────────────────────────┘     │
-│         ↓                                                │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ PROCESSING STATION 1 (Transformer Block 1)     │     │
-│  │ - Scan item (Attention)                        │     │
-│  │ - Package appropriately (FFN)                  │     │
-│  └────────────────────────────────────────────────┘     │
-│         ↓                                                │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ PROCESSING STATION 2 (Transformer Block 2)     │     │
-│  │ - Add shipping labels                          │     │
-│  │ - Quality check                                │     │
-│  └────────────────────────────────────────────────┘     │
-│         ↓                                                │
-│         ... (N stations total)                           │
-│         ↓                                                │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ FINAL INSPECTION (Final Layer Norm)            │     │
-│  │ Standardize all packages                       │     │
-│  └────────────────────────────────────────────────┘     │
-│         ↓                                                │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ SHIPPING LABEL PRINTER (Output Projection)     │     │
-│  │ Generates delivery options                     │     │
-│  │ (embedding_dim → vocab_size)                   │     │
-│  └────────────────────────────────────────────────┘     │
-│         ↓                                                │
-│  DELIVERY OPTIONS (Softmax → Probabilities)             │
-│  - Option A: 45% chance                                 │
-│  - Option B: 30% chance                                 │
-│  - Option C: 25% chance                                 │
-└─────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|                    GPT MODEL                                      |
+|                                                                   |
+|  CUSTOMER ORDER ARRIVES (Input token IDs)                        |
+|         |                                                         |
+|         v                                                         |
+|  +----------------------------------------------------------+    |
+|  | ORDER TRANSLATOR (Token Embedding)                       |    |
+|  | "Wireless Mouse" -> SKU #12345                           |    |
+|  | Converts IDs to dense vectors                            |    |
+|  +----------------------------------------------------------+    |
+|         |                                                         |
+|         v                                                         |
+|  +----------------------------------------------------------+    |
+|  | WAREHOUSE LOCATION (Position Embedding)                  |    |
+|  | Aisle 1, Shelf 2, Position 3                             |    |
+|  | Adds sequence position info                              |    |
+|  +----------------------------------------------------------+    |
+|         |                                                         |
+|         v                                                         |
+|  +----------------------------------------------------------+    |
+|  | PROCESSING STATION 1 (Transformer Block 1)               |    |
+|  | - Scan item (Attention)                                  |    |
+|  | - Package appropriately (FFN)                            |    |
+|  +----------------------------------------------------------+    |
+|         |                                                         |
+|         v                                                         |
+|  +----------------------------------------------------------+    |
+|  | PROCESSING STATION 2 (Transformer Block 2)               |    |
+|  | - Add shipping labels                                    |    |
+|  | - Quality check                                          |    |
+|  +----------------------------------------------------------+    |
+|         |                                                         |
+|         v                                                         |
+|         ... (N stations total)                                    |
+|         |                                                         |
+|         v                                                         |
+|  +----------------------------------------------------------+    |
+|  | FINAL INSPECTION (Final Layer Norm)                      |    |
+|  | Standardize all packages                                 |    |
+|  +----------------------------------------------------------+    |
+|         |                                                         |
+|         v                                                         |
+|  +----------------------------------------------------------+    |
+|  | SHIPPING LABEL PRINTER (Output Projection)               |    |
+|  | Generates delivery options                               |    |
+|  | (embedding_dim -> vocab_size)                            |    |
+|  +----------------------------------------------------------+    |
+|         |                                                         |
+|         v                                                         |
+|  DELIVERY OPTIONS (Softmax -> Probabilities)                     |
+|  - Option A: 45% chance                                          |
+|  - Option B: 30% chance                                          |
+|  - Option C: 25% chance                                          |
++-------------------------------------------------------------------+
 
 KEY PARAMETERS (GPT-2 Small):
 - vocab_size: 50,257 (BPE vocabulary)
@@ -111,7 +119,7 @@ KEY PARAMETERS (GPT-2 Small):
 - embedding_dim: 768
 - num_heads: 12
 - num_blocks: 12
-- ff_dim: 3072 (4 × embedding_dim)
+- ff_dim: 3072 (4 x embedding_dim)
 - Total parameters: ~124 million
 
 GPT-2 Small is like a medium-sized fulfillment center:
@@ -207,7 +215,7 @@ def create_causal_mask(seq_len):
     mask = np.zeros((seq_len, seq_len))
     for i in range(seq_len):
         for j in range(i + 1, seq_len):
-            mask[i, j] = -1e9  # Large negative (becomes ~0 after softmax)
+            mask[i, j] = -1e9
     return mask
 
 # =============================================================================
@@ -215,12 +223,12 @@ def create_causal_mask(seq_len):
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 3: Embedding Layers")
+print("STEP 3: Embedding Layers - Converting IDs to Vectors")
 print("="*70)
 
 print("""
 REAL-WORLD EXAMPLE: Library Card Catalog System
-================================================
+===============================================
 
 TOKEN EMBEDDING = Book Lookup
 -----------------------------
@@ -228,17 +236,17 @@ TOKEN EMBEDDING = Book Lookup
 Imagine a library with 50,000 books (vocabulary):
 
 PATRON REQUEST: "Harry Potter and the Sorcerer's Stone"
-  ↓
+  |
 LIBRARIAN LOOKS UP in catalog (embedding table)
-  ↓
+  |
 RETURNS: Book location code [0.23, -0.45, 0.89, ...] (768-dim vector)
-  ↓
+  |
 This vector uniquely identifies the book!
 
 Each book has a unique embedding (location code):
-- "Harry Potter" → [0.23, -0.45, 0.89, ...]
-- "Lord of the Rings" → [-0.12, 0.67, -0.34, ...]
-- "1984" → [0.45, 0.23, -0.78, ...]
+- "Harry Potter" -> [0.23, -0.45, 0.89, ...]
+- "Lord of the Rings" -> [-0.12, 0.67, -0.34, ...]
+- "1984" -> [0.45, 0.23, -0.78, ...]
 
 POSITION EMBEDDING = Reading Order
 ----------------------------------
@@ -249,9 +257,9 @@ Books on a shelf need ORDER:
 - Book 3: Third in series
 
 Position embeddings add this order information:
-- Position 0 → [0.00, 1.00, 0.00, ...]
-- Position 1 → [0.50, 0.87, 0.12, ...]
-- Position 2 → [0.87, 0.50, 0.34, ...]
+- Position 0 -> [0.00, 1.00, 0.00, ...]
+- Position 1 -> [0.50, 0.87, 0.12, ...]
+- Position 2 -> [0.87, 0.50, 0.34, ...]
 
 Combined = Book + Position
 - "Harry Potter" at position 0
@@ -264,9 +272,6 @@ This tells GPT both WHAT and WHERE!
 class TokenEmbedding:
     """
     Token embedding layer.
-    
-    REAL-WORLD EXAMPLE: Restaurant Menu Translator
-    ===============================================
     
     Think of TokenEmbedding as a menu translator:
     
@@ -296,26 +301,22 @@ class TokenEmbedding:
         
         np.random.seed(42)
         # Embedding matrix: each row is a token's embedding
-        # Like a dictionary: token_id → embedding_vector
         self.weights = np.random.randn(vocab_size, embedding_dim) * 0.02
         
         print(f"TokenEmbedding created")
         print(f"  Vocabulary: {vocab_size:,} unique tokens")
         print(f"  Embedding dim: {embedding_dim} features per token")
-        print(f"  → Like a dictionary with {vocab_size:,} entries!")
     
     def forward(self, token_ids):
         """
         Get embeddings for token IDs.
         
-        REAL-WORLD EXAMPLE: Looking Up Words in Dictionary
-        ---------------------------------------------------
         Input: [10, 25, 67] (token IDs = word numbers)
         
         Process:
-        - Look up word #10 → "The" → [0.1, -0.2, ...]
-        - Look up word #25 → "cat" → [-0.3, 0.4, ...]
-        - Look up word #67 → "sat" → [0.5, -0.1, ...]
+        - Look up word #10 -> "The" -> [0.1, -0.2, ...]
+        - Look up word #25 -> "cat" -> [-0.3, 0.4, ...]
+        - Look up word #67 -> "sat" -> [0.5, -0.1, ...]
         
         Output: Stack of embeddings for all tokens
         
@@ -330,9 +331,6 @@ class TokenEmbedding:
 class PositionEmbedding:
     """
     Position embedding layer.
-    
-    REAL-WORLD EXAMPLE: Train Seat Assignment
-    =========================================
     
     Think of PositionEmbedding as seat assignments:
     
@@ -357,14 +355,11 @@ class PositionEmbedding:
         self.embedding_dim = embedding_dim
         
         np.random.seed(42)
-        # Position embedding table
-        # Each position gets a unique embedding
         self.weights = np.random.randn(max_seq_len, embedding_dim) * 0.02
         
         print(f"PositionEmbedding created")
         print(f"  Max length: {max_seq_len} positions")
         print(f"  Embedding dim: {embedding_dim} features per position")
-        print(f"  → Can handle sequences up to {max_seq_len} tokens!")
     
     def forward(self, seq_len):
         """
@@ -383,7 +378,7 @@ class PositionEmbedding:
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 4: Core Components")
+print("STEP 4: Core Components - Reusing Building Blocks")
 print("="*70)
 
 print("""
@@ -500,41 +495,41 @@ class MultiHeadAttention:
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 5: Transformer Block")
+print("STEP 5: Transformer Block - The Processing Unit")
 print("="*70)
 
 print("""
 REAL-WORLD EXAMPLE: Sushi Assembly Line Station
-================================================
+===============================================
 
 Each transformer block is like a sushi chef station:
 
 INPUT: Rice and fish arrive (embeddings from previous layer)
-       ↓
-┌─────────────────────────────────────────────┐
-│  STATION 1: PREPARATION (LayerNorm)         │
-│  - Measure rice precisely (normalize)       │
-│  - Ensure consistent portions               │
-│         ↓                                    │
-│  STATION 2: ASSEMBLY (Attention)            │
-│  - Chef examines ingredients                │
-│  - Understands relationships                │
-│  - "Fish goes ON rice, not under"           │
-│         ↓                                    │
-│  RESIDUAL: Add original ingredients back    │
-│  - Don't lose the original flavor!          │
-│         ↓                                    │
-│  STATION 3: PREPARATION (LayerNorm 2)       │
-│  - Final measurement check                  │
-│         ↓                                    │
-│  STATION 4: SHAPING (FeedForward)           │
-│  - Form into proper sushi shape             │
-│  - Apply transformation                     │
-│         ↓                                    │
-│  RESIDUAL: Add previous stage back          │
-│  - Preserve accumulated flavor              │
-└─────────────────────────────────────────────┘
-       ↓
+       |
++---------------------------------------------+
+|  STATION 1: PREPARATION (LayerNorm)         |
+|  - Measure rice precisely (normalize)       |
+|  - Ensure consistent portions               |
+|         |                                   |
+|  STATION 2: ASSEMBLY (Attention)            |
+|  - Chef examines ingredients                |
+|  - Understands relationships                |
+|  - "Fish goes ON rice, not under"           |
+|         |                                   |
+|  RESIDUAL: Add original ingredients back    |
+|  - Don't lose the original flavor!          |
+|         |                                   |
+|  STATION 3: PREPARATION (LayerNorm 2)       |
+|  - Final measurement check                  |
+|         |                                   |
+|  STATION 4: SHAPING (FeedForward)           |
+|  - Form into proper sushi shape             |
+|  - Apply transformation                     |
+|         |                                   |
+|  RESIDUAL: Add previous stage back          |
+|  - Preserve accumulated flavor              |
++---------------------------------------------+
+       |
 OUTPUT: Finished sushi (enhanced embeddings)
         Same format as input, but transformed!
 
@@ -545,9 +540,6 @@ Each station refines the sushi further!
 class TransformerBlock:
     """
     Complete Transformer Block.
-    
-    REAL-WORLD EXAMPLE: Document Review Station
-    ===========================================
     
     Think of TransformerBlock as a document reviewer:
     
@@ -592,66 +584,66 @@ class TransformerBlock:
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 6: Complete GPT Model")
+print("STEP 6: Complete GPT Model - The Full Architecture")
 print("="*70)
 
 print("""
 REAL-WORLD EXAMPLE: Complete Ice Cream Shop
-============================================
+===========================================
 
 GPT is like an ice cream shop that predicts your next flavor:
 
-┌──────────────────────────────────────────────────────────┐
-│                    GPT ICE CREAM SHOP                     │
-│                                                           │
-│  CUSTOMER ORDER (Input token IDs)                        │
-│  "I want: Vanilla → Chocolate → ?"                       │
-│         ↓                                                 │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │ FLAVOR ENCODER (Token Embedding)                 │   │
-│  │ Vanilla → [0.2, -0.5, 0.8, ...]                  │   │
-│  │ Chocolate → [-0.3, 0.7, -0.2, ...]               │   │
-│  └──────────────────────────────────────────────────┘   │
-│         ↓                                                 │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │ ORDER SEQUENCE (Position Embedding)              │   │
-│  │ First flavor + position 0                        │   │
-│  │ Second flavor + position 1                       │   │
-│  └──────────────────────────────────────────────────┘   │
-│         ↓                                                 │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │ PROCESSING STATION 1 (Transformer Block 1)       │   │
-│  │ "Customer started with vanilla..."               │   │
-│  │ Basic pattern recognition                        │   │
-│  └──────────────────────────────────────────────────┘   │
-│         ↓                                                 │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │ PROCESSING STATION 2 (Transformer Block 2)       │   │
-│  │ "...then chocolate, likely wants sweet!"         │   │
-│  │ Deeper pattern understanding                     │   │
-│  └──────────────────────────────────────────────────┘   │
-│         ↓                                                 │
-│         ... (more stations for deeper understanding)     │
-│         ↓                                                 │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │ FINAL QUALITY CHECK (Final LayerNorm)            │   │
-│  │ Ensure consistent recommendations                │   │
-│  └──────────────────────────────────────────────────┘   │
-│         ↓                                                 │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │ RECOMMENDATION GENERATOR (Output Projection)     │   │
-│  │ Maps understanding to flavor options             │   │
-│  └──────────────────────────────────────────────────┘   │
-│         ↓                                                 │
-│  FLAVOR PROBABILITIES (Softmax)                          │
-│  - Strawberry: 35% ← Most likely!                       │
-│  - Cookies & Cream: 25%                                 │
-│  - Mint Chip: 20%                                       │
-│  - Vanilla: 10%                                         │
-│  - ... (50,000+ flavors total)                          │
-│         ↓                                                 │
-│  SHOPKEEPER: "I recommend Strawberry!"                  │
-└──────────────────────────────────────────────────────────┘
++------------------------------------------------------------+
+|                    GPT ICE CREAM SHOP                       |
+|                                                             |
+|  CUSTOMER ORDER (Input token IDs)                          |
+|  "I want: Vanilla -> Chocolate -> ?"                       |
+|         |                                                   |
+|  +--------------------------------------------------------+ |
+|  | FLAVOR ENCODER (Token Embedding)                       | |
+|  | Vanilla -> [0.2, -0.5, 0.8, ...]                       | |
+|  | Chocolate -> [-0.3, 0.7, -0.2, ...]                    | |
+|  +--------------------------------------------------------+ |
+|         |                                                   |
+|  +--------------------------------------------------------+ |
+|  | ORDER SEQUENCE (Position Embedding)                    | |
+|  | First flavor + position 0                              | |
+|  | Second flavor + position 1                             | |
+|  +--------------------------------------------------------+ |
+|         |                                                   |
+|  +--------------------------------------------------------+ |
+|  | PROCESSING STATION 1 (Transformer Block 1)             | |
+|  | "Customer started with vanilla..."                     | |
+|  | Basic pattern recognition                              | |
+|  +--------------------------------------------------------+ |
+|         |                                                   |
+|  +--------------------------------------------------------+ |
+|  | PROCESSING STATION 2 (Transformer Block 2)             | |
+|  | "...then chocolate, likely wants sweet!"               | |
+|  | Deeper pattern understanding                           | |
+|  +--------------------------------------------------------+ |
+|         |                                                   |
+|         ... (more stations for deeper understanding)       |
+|         |                                                   |
+|  +--------------------------------------------------------+ |
+|  | FINAL QUALITY CHECK (Final LayerNorm)                  | |
+|  | Ensure consistent recommendations                      | |
+|  +--------------------------------------------------------+ |
+|         |                                                   |
+|  +--------------------------------------------------------+ |
+|  | RECOMMENDATION GENERATOR (Output Projection)           | |
+|  | Maps understanding to flavor options                   | |
+|  +--------------------------------------------------------+ |
+|         |                                                   |
+|  FLAVOR PROBABILITIES (Softmax)                            |
+|  - Strawberry: 35% <- Most likely!                        |
+|  - Cookies & Cream: 25%                                   |
+|  - Mint Chip: 20%                                         |
+|  - Vanilla: 10%                                           |
+|  - ... (50,000+ flavors total)                            |
+|         |                                                   |
+|  SHOPKEEPER: "I recommend Strawberry!"                    |
++------------------------------------------------------------+
 
 KEY INSIGHT: GPT doesn't "know" the next word.
 It calculates PROBABILITIES based on patterns!
@@ -659,12 +651,7 @@ It calculates PROBABILITIES based on patterns!
 
 class GPT:
     """
-    Complete GPT Model.
-    
-    REAL-WORLD EXAMPLE: Full-Service Restaurant
-    ===========================================
-    
-    This is the complete autoregressive language model!
+    Complete GPT Model - Autoregressive Language Model.
     
     Think of it as running a restaurant:
     
@@ -698,10 +685,7 @@ class GPT:
         """
         Initialize GPT model.
         
-        REAL-WORLD EXAMPLE: Restaurant Setup
-        -------------------------------------
-        
-        Setting up a new restaurant requires:
+        Setting up a restaurant requires:
         
         vocab_size = Menu size
           - GPT-2: 50,257 items (like a massive food court!)
@@ -740,7 +724,7 @@ class GPT:
         self.embedding_dim = embedding_dim
         
         print("\n" + "="*50)
-        print("🍦 GPT Language Restaurant Opening!")
+        print("GPT Language Restaurant Opening!")
         print("="*50)
         print(f"Restaurant Configuration:")
         print(f"  Menu size (vocab): {vocab_size:,} items")
@@ -774,7 +758,7 @@ class GPT:
         self.W_out = np.random.randn(embedding_dim, vocab_size) * 0.1
         
         print("="*50)
-        print("🎉 Restaurant is now open for business!")
+        print("Restaurant is now open for business!")
         print("="*50)
         
         # Calculate approximate parameter count
@@ -786,31 +770,27 @@ class GPT:
         pos_params = self.max_seq_len * self.embedding_dim
         
         # Per block: attention (4 * d^2) + FFN (2 * d * 4d) + layer norms
-        block_params = (4 * self.embedding_dim**2 +  # Attention
-                       8 * self.embedding_dim**2 +   # FFN (d*4d + 4d*d)
-                       4 * self.embedding_dim)       # LayerNorm
+        block_params = (4 * self.embedding_dim**2 +
+                       8 * self.embedding_dim**2 +
+                       4 * self.embedding_dim)
         total_block_params = num_blocks * block_params
         
         output_params = self.embedding_dim * self.vocab_size
         
         total = emb_params + pos_params + total_block_params + output_params
-        print(f"\n💰 Estimated investment (parameters): {total:,} ({total/1e6:.1f}M)")
-        print("   (Each parameter is like a recipe adjustment!)")
+        print(f"\nEstimated investment (parameters): {total:,} ({total/1e6:.1f}M)")
     
     def forward(self, token_ids):
         """
         Forward pass of GPT model.
         
-        REAL-WORLD EXAMPLE: Processing a Customer Order
-        -----------------------------------------------
-        
         INPUT: Customer's order history
                token_ids = [10, 25, 67] (appetizer, salad, ?)
         
         STEP 1: Look up each item (Token Embedding)
-                10 → "Spring Rolls" → [0.2, -0.5, ...]
-                25 → "Caesar Salad" → [-0.3, 0.7, ...]
-                67 → "Soup" → [0.1, 0.4, ...]
+                10 -> "Spring Rolls" -> [0.2, -0.5, ...]
+                25 -> "Caesar Salad" -> [-0.3, 0.7, ...]
+                67 -> "Soup" -> [0.1, 0.4, ...]
         
         STEP 2: Add course numbers (Position Embedding)
                 Course 1: Spring Rolls + pos_0
@@ -841,23 +821,23 @@ class GPT:
         """
         seq_len = len(token_ids)
         
-        # Step 1: Token embeddings (Look up items in catalog)
+        # Step 1: Token embeddings
         token_embs = self.token_embedding.forward(token_ids)
         
-        # Step 2: Position embeddings (Add course numbers)
+        # Step 2: Position embeddings
         pos_embs = self.position_embedding.forward(seq_len)
         
-        # Step 3: Combine (Item + Position)
+        # Step 3: Combine (token + position)
         x = token_embs + pos_embs
         
-        # Step 4: Pass through transformer blocks (Kitchen stations)
+        # Step 4: Pass through transformer blocks
         for i, block in enumerate(self.blocks):
             x = block.forward(x)
         
-        # Step 5: Final layer norm (Quality control)
+        # Step 5: Final layer norm
         x = self.ln_final.forward(x)
         
-        # Step 6: Output projection to vocabulary (Print recommendations)
+        # Step 6: Output projection to vocabulary
         logits = np.dot(x, self.W_out)
         
         return logits
@@ -865,9 +845,6 @@ class GPT:
     def predict_next_token(self, token_ids, temperature=1.0):
         """
         Predict next token probabilities.
-        
-        REAL-WORLD EXAMPLE: Weather Forecast
-        -------------------------------------
         
         Given recent weather pattern [Sunny, Cloudy, ?]
         Predict tomorrow's weather:
@@ -894,7 +871,7 @@ class GPT:
         """
         # Get logits for the last position
         logits = self.forward(token_ids)
-        last_logits = logits[-1]  # Shape: (vocab_size,)
+        last_logits = logits[-1]
         
         # Apply temperature scaling
         if temperature != 1.0:
@@ -928,336 +905,166 @@ Let's see our restaurant in action!
 
 # Create a small GPT model for demonstration
 gpt = GPT(
-    vocab_size=1000,      # Small vocab for demo (like a cafe menu)
-    max_seq_len=128,      # Short sequences (reasonable meal)
-    embedding_dim=64,     # Small embedding (compact descriptions)
-    num_heads=4,          # Fewer heads (smaller team)
-    num_blocks=2,         # Just 2 blocks (efficient workflow)
-    ff_dim=256            # Smaller FFN (appropriate capacity)
+    vocab_size=1000,      # Small vocab for demo
+    max_seq_len=128,      # Short sequences
+    embedding_dim=64,     # Small embedding
+    num_heads=4,          # Fewer heads
+    num_blocks=2,         # Just 2 blocks
+    ff_dim=256            # Smaller FFN
 )
 
 print("\n" + "-"*70)
-print("📝 Processing a customer order...")
+print("Processing a customer order...")
 print("-"*70)
 
-# Simulate input token IDs (customer's order history)
+# Simulate input token IDs
 np.random.seed(42)
 input_tokens = np.array([10, 25, 67, 89, 123, 45, 78, 234])
 print(f"\nCustomer order history: {input_tokens}")
-print(f"  → {len(input_tokens)} courses ordered so far")
+print(f"  -> {len(input_tokens)} courses ordered so far")
 
-# Forward pass - generate recommendations
-print(f"\n🔄 Sending order through kitchen...")
+# Forward pass
+print(f"\nSending order through kitchen...")
 logits = gpt.forward(input_tokens)
-print(f"\n📊 Kitchen recommendations:")
+print(f"\nKitchen recommendations:")
 print(f"  Output shape: {logits.shape}")
-print(f"  → Scores for all {logits.shape[1]} menu items at each position!")
+print(f"  -> Scores for all {logits.shape[1]} menu items at each position!")
 
 # Get next token probabilities
-print(f"\n🎯 Predicting next course...")
+print(f"\nPredicting next course...")
 probs = gpt.predict_next_token(input_tokens)
 print(f"  Probability distribution shape: {probs.shape}")
-print(f"  → Probability for each of {probs.shape[0]} menu items!")
 
 # Find most likely next tokens
 top_indices = np.argsort(probs)[-10:][::-1]
-print(f"\n🏆 Top 10 recommended next courses:")
+print(f"\nTop 10 recommended next courses:")
 for i, idx in enumerate(top_indices):
-    confidence = "⭐⭐⭐" if probs[idx] > 0.05 else "⭐⭐" if probs[idx] > 0.02 else "⭐"
+    confidence = "***" if probs[idx] > 0.05 else "**" if probs[idx] > 0.02 else "*"
     print(f"  {i+1}. Item #{idx}: {probs[idx]*100:.2f}% chance {confidence}")
 
 # =============================================================================
-# STEP 8: Understanding the Output
+# SUMMARY: Complete GPT Model
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 8: Understanding GPT Output")
+print("SUMMARY: Complete GPT Architecture")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Horse Race Betting
-======================================
+WHAT WE BUILT:
+==============
+1. Token Embeddings - Convert IDs to vectors
+2. Position Embeddings - Add sequence order
+3. Transformer Blocks - Process and understand
+4. Final LayerNorm - Stabilize output
+5. Output Projection - Map to vocabulary
+6. Softmax - Convert to probabilities
 
-GPT OUTPUT EXPLAINED:
+COMPLETE FLOW:
+==============
 
-1. LOGITS (Raw Scores) = Odds Before Conversion
-   - Shape: (seq_len, vocab_size)
-   - Each item has a raw score
-   - Higher = more favored
-   
-   Example: [2.5, -1.3, 0.8, ...]
-   → Item 0 is favored, Item 1 is underdog
+Input: "The cat sat on the" (token IDs)
+  |
+  v
+Token Embeddings: Look up vectors
+  |
+  v
+Position Embeddings: Add position info
+  |
+  v
+Transformer Block 1: Basic patterns
+  |
+  v
+Transformer Block 2: Deeper patterns
+  |
+  v
+... (more blocks)
+  |
+  v
+Final LayerNorm: Normalize
+  |
+  v
+Output Projection: vocab_size logits
+  |
+  v
+Softmax: probabilities for each word
+  |
+  v
+Sample: "mat" (most likely next word)
 
-2. PROBABILITIES (After Softmax) = Betting Odds
-   - Shape: (vocab_size,) for next token
-   - All odds sum to 100%
-   - Used to determine payouts
-   
-   Example: [0.45, 0.15, 0.25, ...]
-   → Item 0: 45% chance (favorite)
-   → Item 1: 15% chance (longshot)
-   → Item 2: 25% chance (contender)
+HOW THIS CONNECTS TO GPT:
+=========================
 
-3. NEXT TOKEN PREDICTION = Picking the Winner
-   - GPT is trained to predict the next token
-   - Like picking which horse wins
-   - Uses only past information (causal mask)
+GPT-2 Small:
+  - vocab_size = 50,257
+  - embedding_dim = 768
+  - num_heads = 12
+  - num_blocks = 12
+  - ff_dim = 3072
+  - Total params: ~124M
 
-4. TEMPERATURE = Confidence Level
-   
-   COLD (temp=0.1): Ultra-confident
-   - "I'm 99% sure it's Horse #5!"
-   - Very peaky distribution
-   - Good for factual completion
-   
-   NORMAL (temp=1.0): Standard confidence
-   - "Horse #5 is favored at 45%"
-   - Natural probability distribution
-   - Good for general use
-   
-   HOT (temp=2.0): Feeling adventurous
-   - "Any horse could win today!"
-   - Flatter distribution
-   - Good for creative generation
+GPT-3 Large:
+  - vocab_size = 50,257
+  - embedding_dim = 12288
+  - num_heads = 96
+  - num_blocks = 96
+  - ff_dim = 49152
+  - Total params: ~175B
 
-HOW GPT GENERATES TEXT = Continuous Betting
-============================================
+SAME ARCHITECTURE, different scale!
 
-1. Start with prompt: "The cat sat on the"
-2. Calculate odds for next word
-3. Sample from odds (roll the dice)
-4. Append chosen word: "The cat sat on the mat"
-5. Repeat from step 2: "The cat sat on the mat because"
-6. Continue until done!
+NEXT: Training the Model
+========================
+Now we have the complete GPT architecture!
+Next, we learn how to TRAIN it:
+- Loss functions (cross-entropy)
+- Backpropagation (gradient descent)
+- Training loop (iterate over data)
+- Evaluation (perplexity)
 
-This is "autoregressive generation"!
-Like a snowball rolling downhill, growing with each step!
+Next: 07_training.py
 =============================================================================""")
 
-# =============================================================================
-# STEP 9: Temperature Demonstration
-# =============================================================================
-
 print("\n" + "="*70)
-print("STEP 9: Temperature Effect Demonstration")
+print("EXERCISE: Experiment with GPT Architecture")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Choosing a Restaurant
-=========================================
+Try these experiments:
 
-Imagine choosing where to eat:
-
-CONSERVATIVE MODE (temperature=0.1):
-  "Always go to your favorite!"
-  - Italian: 95% ← Overwhelming favorite
-  - Chinese: 3%
-  - Mexican: 2%
-  → Safe, predictable choice
-
-NORMAL MODE (temperature=1.0):
-  "Go with your usual preferences"
-  - Italian: 40% ← Favorite but not guaranteed
-  - Chinese: 25%
-  - Mexican: 20%
-  - Thai: 10%
-  - Others: 5%
-  → Balanced choice
-
-ADVENTUROUS MODE (temperature=2.0):
-  "Try something new!"
-  - Italian: 25% ← Still likely, but less dominant
-  - Chinese: 22%
-  - Mexican: 20%
-  - Thai: 18%
-  - Ethiopian: 10%
-  - Indian: 5%
-  → Open to surprises!
-
-Let's see temperature in action!
-""")
-
-print("\n--- Temperature Comparison ---")
-print("="*50)
-
-# Cold sampling (conservative)
-probs_cold = gpt.predict_next_token(input_tokens, temperature=0.1)
-print(f"\nCOLD (temp=0.1):")
-print(f"  Top 3: {[f'#{idx}={p*100:.1f}%' for idx, p in zip(np.argsort(probs_cold)[-3:][::-1], np.sort(probs_cold)[-3:][::-1])]}")
-print(f"  → Confident, peaky distribution")
-
-# Normal sampling
-probs_normal = gpt.predict_next_token(input_tokens, temperature=1.0)
-print(f"\nNORMAL (temp=1.0):")
-print(f"  Top 3: {[f'#{idx}={p*100:.1f}%' for idx, p in zip(np.argsort(probs_normal)[-3:][::-1], np.sort(probs_normal)[-3:][::-1])]}")
-print(f"  → Natural distribution")
-
-# Hot sampling (adventurous)
-probs_hot = gpt.predict_next_token(input_tokens, temperature=2.0)
-print(f"\nHOT (temp=2.0):")
-print(f"  Top 3: {[f'#{idx}={p*100:.1f}%' for idx, p in zip(np.argsort(probs_hot)[-3:][::-1], np.sort(probs_hot)[-3:][::-1])]}")
-print(f"  → Diverse, spread-out distribution")
-
-print("\n" + "-"*70)
-print("KEY INSIGHT:")
-print("-"*70)
-print("""
-Temperature controls the "personality" of GPT:
-
-🥶 COLD (0.1-0.5):
-   - Focused, deterministic
-   - Good for: Facts, code, math
-   - "The capital of France is ___" → "Paris" (always)
-
-😐 NORMAL (0.7-1.0):
-   - Balanced, natural
-   - Good for: General conversation
-   - "Once upon a time" → varied but coherent
-
-🔥 HOT (1.2-2.0):
-   - Creative, surprising
-   - Good for: Stories, poetry, brainstorming
-   - "Write a poem about" → unique each time
-=============================================================================""")
-
-# =============================================================================
-# SUMMARY
-# =============================================================================
-
-print("\n" + "="*70)
-print("SUMMARY: Complete GPT Model")
-print("="*70)
-
-print("""
-REAL-WORLD ANALOGIES RECAP:
-===========================
-
-1. AMAZON FULFILLMENT CENTER:
-   - Order arrives → Translator → Warehouse → Stations → Quality → Shipping
-   - Maps to: Input → Embeddings → Blocks → Norm → Output
-
-2. LIBRARY CARD CATALOG:
-   - Token embedding = Book lookup system
-   - Position embedding = Reading order tracker
-
-3. ICE CREAM SHOP:
-   - Predicts next flavor based on order history
-   - Calculates probabilities, doesn't "know" the answer
-
-4. RESTAURANT KITCHEN:
-   - Multiple stations (blocks) refine the dish
-   - Each station has specialists (heads)
-   - Quality control (LayerNorm) ensures consistency
-
-GPT MODEL COMPONENTS:
-=====================
-
-1. TOKEN EMBEDDINGS: Convert token IDs → vectors
-   "Like looking up words in a dictionary"
-
-2. POSITION EMBEDDINGS: Add position information
-   "Like numbering pages in a book"
-
-3. TRANSFORMER BLOCKS: Process with attention + FFN
-   "Like kitchen stations refining a dish"
-
-4. LAYER NORM: Normalize activations
-   "Like a food scale ensuring consistent portions"
-
-5. OUTPUT PROJECTION: Convert to vocabulary logits
-   "Like printing a menu of options"
-
-FORWARD PASS:
-=============
-  token_ids → embeddings → blocks → norm → logits → probs
-  
-  "Customer order → Kitchen → Stations → Quality → Menu → Odds"
-
-KEY PARAMETERS (GPT-2 Small):
-=============================
-- vocab_size: 50,257 (massive menu!)
-- max_seq_len: 1,024 (long meals!)
-- embedding_dim: 768 (detailed descriptions)
-- num_heads: 12 (specialist chefs)
-- num_blocks: 12 (kitchen stations)
-- ff_dim: 3,072 (processing capacity)
-- Total: ~124M parameters (recipe adjustments!)
-
-WHAT MAKES GPT WORK:
-====================
-1. Self-attention captures token relationships
-2. Multi-head allows multiple perspectives
-3. Stacked blocks build hierarchical representations
-4. Causal mask enables autoregressive prediction
-5. Temperature controls creativity vs. focus
-6. Large scale (parameters + data) gives capability
-
-NEXT: Training the model - teaching GPT to predict!
-=============================================================================""")
-
-# =============================================================================
-# EXERCISE
-# =============================================================================
-
-print("\n" + "="*70)
-print("EXERCISE: Experiment with GPT Model")
-print("="*70)
-
-print("""
-REAL-WORLD EXPERIMENTS:
-=======================
-
-1. CHANGE MODEL SIZE:
-   gpt = GPT(vocab_size=2000, max_seq_len=64, 
-             embedding_dim=128, num_heads=8, 
-             num_blocks=4, ff_dim=512)
+1. CHANGE VOCABULARY SIZE:
+   gpt = GPT(vocab_size=5000, ...)  # Larger vocab
    
-   Question: How does output quality change?
-   Expectation: Larger model = more nuanced predictions
+   Question: How does this affect parameters?
+   Answer: More vocabulary = more embedding params
 
-2. ANALYZE LOGITS:
-   logits = gpt.forward(input_tokens)
-   print(f"Logits range: [{logits.min():.2f}, {logits.max():.2f}]")
+2. CHANGE NUMBER OF BLOCKS:
+   gpt = GPT(num_blocks=4, ...)  # Deeper model
    
-   Question: What do positive/negative logits mean?
-   Answer: Positive = favored, Negative = unlikely
+   Question: How does depth affect output?
+   Answer: More blocks = deeper understanding
 
-3. TEMPERATURE EFFECT:
-   probs_cold = gpt.predict_next_token(input_tokens, temperature=0.1)
-   probs_hot = gpt.predict_next_token(input_tokens, temperature=2.0)
+3. CHANGE EMBEDDING DIMENSION:
+   gpt = GPT(embedding_dim=128, ...)  # Richer embeddings
    
-   Question: How does entropy change?
-   Cold: Low entropy (confident)
-   Hot: High entropy (uncertain)
+   Question: How does this affect capacity?
+   Answer: Larger dim = more expressive power
 
-4. LONGER INPUT:
-   input_tokens = np.arange(20)  # 20 tokens
-   logits = gpt.forward(input_tokens)
-   print(f"Output shape: {logits.shape}")
+4. TEMPERATURE SCALING:
+   probs = gpt.predict_next_token(tokens, temperature=0.5)
+   probs = gpt.predict_next_token(tokens, temperature=2.0)
    
-   Question: Does GPT handle longer sequences?
-   Answer: Yes! Up to max_seq_len
-
-5. PREDICTION CONFIDENCE:
-   top_prob = probs.max()
-   print(f"Top prediction confidence: {top_prob*100:.1f}%")
-   
-   Question: When is GPT most confident?
-   Answer: Depends on learned patterns!
-
-6. VISUALIZE (MENTALLY):
-   Imagine probability distribution as a bar chart:
-   - Cold: One tall bar, many tiny bars
-   - Normal: Few medium bars
-   - Hot: Many similar-height bars
+   Question: How does temperature affect predictions?
+   Answer: Low = confident, High = diverse/random
 
 KEY TAKEAWAY:
 =============
-- GPT combines all components to predict next token
-- Output is a probability distribution over vocabulary
-- Temperature controls sampling behavior
-- Model is autoregressive (predicts one token at a time)
-- Like a restaurant that learns your preferences!
+GPT = Embeddings + Transformer Blocks + Output Projection!
+- Token embeddings convert IDs to vectors
+- Position embeddings add order
+- Transformer blocks process and understand
+- Output projection maps to vocabulary
+- Softmax gives probabilities
 
-Next: 07_training.py - Teaching GPT with loss and optimization!
+This is the COMPLETE autoregressive language model!
 =============================================================================""")

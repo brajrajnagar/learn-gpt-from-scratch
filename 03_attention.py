@@ -1,66 +1,98 @@
 """
 =============================================================================
-LESSON 3: Self-Attention - The Heart of Transformers
+LESSON 3: Self-Attention - How Our Predictor Decides What to Focus On
 =============================================================================
 
-This is THE most important concept in GPT! Self-attention is what allows
-the model to understand relationships between words, regardless of their
-distance in the sequence.
+Continuing our text predictor from Lessons 1-2:
+- Lesson 1: We built a neural network to predict next word
+- Lesson 2: We converted "The cat" to embeddings
+- Lesson 3: We'll learn SELF-ATTENTION - how the model focuses on relevant words
 
-KEY CONCEPTS:
-1. Attention Mechanism - How it works intuitively
-2. Query, Key, Value - The three components
-3. Scaled Dot-Product Attention - The math
-4. Causal Masking - Making it autoregressive (GPT-specific)
-
-ATTENTION INTUITION:
-When reading "The animal didn't cross the street because it was too tired",
-you know "it" refers to "animal", not "street". Attention does this!
-
-Let's build self-attention from scratch!
+EXAMPLE FLOW: "The cat sat on the ___" → attend to "cat" → predict "mat"
 """
 
 import numpy as np
 
 # =============================================================================
-# STEP 1: Understanding Attention Intuitively
+# RECAP: Our Text Predictor So Far
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 1: Understanding Attention")
+print("RECAP: Our Text Predictor")
 print("="*70)
-
 print("""
-REAL-WORLD EXAMPLE: Reading Comprehension
-==========================================
+FROM LESSON 1: We built a network that predicts next word
+  Input: "The cat" → Network → Output: "sat" (most likely)
 
-Imagine you're reading this sentence:
-"The cat sat on the mat because it was comfortable"
+FROM LESSON 2: We convert text to embeddings
+  "The cat" → Token IDs [0, 1] → Embeddings → Network
 
-When you reach the word "it", your brain does something amazing:
-- You automatically look back at previous words
-- You figure out what "it" refers to
-- You understand: "it" = "cat" (the cat was comfortable)
+THE MISSING PIECE:
+==================
+When predicting "The cat sat on the ___", which words matter most?
 
-This is exactly what ATTENTION does in GPT!
+- "The"? (article, not very informative)
+- "cat"? (the subject - VERY important!)
+- "sat"? (the action - important)
+- "on"? (preposition - somewhat important)
+- "the"? (article, not very informative)
 
-ATTENTION PATTERN FOR "it":
-  "it" → attends to → "cat" (80% attention) ← Main reference
-  "it" → attends to → "comfortable" (15% attention) ← Why
-  "it" → attends to → "mat" (5% attention) ← Location
+ANSWER: Self-attention learns to FOCUS on relevant words!
+When predicting after "the", the model learns to attend to "cat"!
 
-The model learns to FOCUS on relevant words when processing each word!
-
-TECHNICAL DETAILS:
-- Each word can attend to ALL words (including itself)
-- Attention weights are learned during training
-- Computed dynamically based on the input
-- Stronger attention = more influence on meaning
-
+WHAT WE'LL BUILD:
+1. Query, Key, Value - the attention mechanism
+2. Attention scores - how much to focus on each word
+3. Weighted sum - gathering information from focused words
+4. Causal mask - only looking at past words (GPT-specific)
 =============================================================================""")
 
 # =============================================================================
-# STEP 2: Query, Key, Value - The Core Components
+# STEP 1: The Problem - Which Words Should We Focus On?
+# =============================================================================
+
+print("\n" + "="*70)
+print("STEP 1: The Attention Problem")
+print("="*70)
+
+print("""
+OUR PREDICTOR'S CHALLENGE:
+==========================
+
+Sentence: "The cat sat on the ___"
+
+To predict the next word, which previous words matter?
+
+Option A: Treat all words equally (what simple networks do)
+  "The" = "cat" = "sat" = "on" = "the" (all equal weight)
+  → Prediction: generic word, misses context
+
+Option B: Focus on relevant words (what attention does)
+  "cat" ← most important (it's about a cat!)
+  "sat" ← important (what the cat did)
+  "the", "on" ← less important (grammar words)
+  → Prediction: contextually appropriate word!
+
+REAL-WORLD EXAMPLE: Reading a Sentence
+======================================
+When you read "The cat sat on the ___", your brain:
+1. Identifies "cat" as the subject (key information!)
+2. Identifies "sat" as the action
+3. Knows "the" and "on" are just grammar
+4. Predicts: "mat", "couch", "floor" (places cats sit)
+
+This FOCUSING mechanism is exactly what self-attention does!
+
+THE ATTENTION QUESTION:
+=======================
+For each word, self-attention asks:
+"How much should I PAY ATTENTION to each other word?"
+
+Let's implement this!
+""")
+
+# =============================================================================
+# STEP 2: Query, Key, Value - The Attention Mechanism
 # =============================================================================
 
 print("\n" + "="*70)
@@ -68,545 +100,597 @@ print("STEP 2: Query, Key, Value")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Library Search System
-=========================================
+THE ATTENTION MECHANISM:
+========================
 
-Imagine you're at a library looking for books about "machine learning".
+Think of attention like a library search:
 
-QUERY (Q): Your search request
-- You type: "machine learning basics"
-- This represents WHAT you're looking for
-- In attention: What the current token wants to find
+QUERY (Q): "What am I looking for?"
+  - Each word creates a "query" vector
+  - This represents what the word wants to find in others
+  - Example: When processing "sat", query looks for "who did the action?"
 
-KEY (K): Book catalog entries
-- Each book has keywords/tags in the catalog
-- "Introduction to ML" → tags: ["machine", "learning", "intro"]
-- "Advanced Python" → tags: ["python", "advanced", "coding"]
-- In attention: What information each token offers
+KEY (K): "What do I offer to others?"
+  - Each word creates a "key" vector
+  - This represents what information the word provides
+  - Example: "cat" has a key indicating "I'm the subject/actor"
 
-VALUE (V): The actual book content
-- Once you find matching books, you read them
-- The books contain the actual information
-- In attention: The actual content that gets used
+VALUE (V): "What information do I carry?"
+  - Each word creates a "value" vector
+  - This is the actual content that gets passed along
+  - Example: "cat" carries information about felines/animals
 
-HOW LIBRARY SEARCH WORKS (LIKE ATTENTION):
-1. You have a QUERY (what you want)
-2. Compare QUERY to all KEYs (catalog matching)
-3. Find best matches (attention scores)
-4. Read the VALUE from matching books (weighted sum)
+HOW ATTENTION WORKS:
+====================
+1. For word X, compute its QUERY (what it's looking for)
+2. Compare QUERY to all KEYs (including itself)
+3. High match = high attention score
+4. Use attention scores to weight VALUES
+5. Output = weighted sum of values (gathered information)
 
-Attention(Q, K, V) = Find relevant books and read them!
-                     where relevance comes from Q·K matching
+FORMULA:
+========
+Attention(Q, K, V) = softmax(Q·K^T / √d_k) · V
+
+Let's implement this step by step!
 """)
 
-def compute_qkv(embedding, weights_q, weights_k, weights_v):
+def compute_qkv(embedding, W_q, W_k, W_v):
     """
-    Compute Query, Key, Value vectors for a token.
+    Compute Query, Key, Value for a single token.
     
-    REAL-WORLD EXAMPLE: Creating Your Library Search
-    -------------------------------------------------
-    For each word/token, we create three specialized vectors:
+    OUR EXAMPLE: Processing "The cat sat"
     
-    QUERY: Created by projecting embedding through W_q
-    - "What am I looking for in other tokens?"
-    - Example: Token "it" creates query looking for nouns
+    For "cat" token with embedding [0.31, 0.08, -0.22, ...]:
     
-    KEY: Created by projecting embedding through W_k  
-    - "What do I offer to other tokens?"
-    - Example: Token "cat" creates key indicating it's a noun/animal
+    QUERY = W_q · embedding
+      → "What am I looking for in other words?"
+      → "cat" looks for: subject, actor, doer
     
-    VALUE: Created by projecting embedding through W_v
-    - "What information do I carry?"
-    - Example: Token "cat" carries info about felines
+    KEY = W_k · embedding
+      → "What do I offer to other words?"
+      → "cat" offers: I'm a noun, I'm an animal, I'm the subject
+    
+    VALUE = W_v · embedding
+      → "What information do I carry?"
+      → "cat" carries: furry, pet, animal, subject info
     
     Args:
         embedding: Token embedding, shape (embedding_dim,)
-        weights_q: Query weight matrix, shape (embedding_dim, d_k)
-        weights_k: Key weight matrix, shape (embedding_dim, d_k)
-        weights_v: Value weight matrix, shape (embedding_dim, d_v)
+        W_q: Query weight matrix, shape (embedding_dim, d_k)
+        W_k: Key weight matrix, shape (embedding_dim, d_k)
+        W_v: Value weight matrix, shape (embedding_dim, d_v)
     
     Returns:
         query, key, value vectors
     """
-    query = np.dot(embedding, weights_q)
-    key = np.dot(embedding, weights_k)
-    value = np.dot(embedding, weights_v)
-    
+    query = np.dot(embedding, W_q)
+    key = np.dot(embedding, W_k)
+    value = np.dot(embedding, W_v)
     return query, key, value
 
-# REAL-WORLD EXAMPLE: Sentence "The cat sat"
 print("\n--- QKV Example: Processing 'The cat sat' ---")
-print("="*50)
-print("""
-SCENARIO: GPT processes the sentence "The cat sat"
+print("-"*50)
 
-For each word, we compute Q, K, V:
-
-WORD: "cat"
-  QUERY: "I'm looking for what came before me"
-  KEY: "I'm a noun, an animal, a subject"
-  VALUE: "I represent a furry pet"
-
-WORD: "sat"
-  QUERY: "I'm looking for who did the action"
-  KEY: "I'm a verb, past tense, action"
-  VALUE: "I represent sitting action"
-
-Let's compute these vectors!
-""")
-
+# Setup dimensions
 np.random.seed(42)
-embedding_dim = 8  # Input embedding size
-d_k = d_v = 4  # QKV dimension (often smaller than embedding_dim)
+embedding_dim = 8  # Size of token embeddings (from Lesson 2)
+d_k = d_v = 4  # QKV dimension (often smaller than embedding)
 
-# Token embedding for "cat"
-cat_embedding = np.random.randn(embedding_dim)
-print(f"\n'cat' token embedding: {np.round(cat_embedding, 2)}")
+# Initialize weight matrices (these would be LEARNED during training)
+W_q = np.random.randn(embedding_dim, d_k) * 0.1
+W_k = np.random.randn(embedding_dim, d_k) * 0.1
+W_v = np.random.randn(embedding_dim, d_v) * 0.1
 
-# Learnable weight matrices (trained to create useful Q, K, V)
-W_q = np.random.randn(embedding_dim, d_k)
-W_k = np.random.randn(embedding_dim, d_k)
-W_v = np.random.randn(embedding_dim, d_v)
+print(f"Dimensions:")
+print(f"  Embedding: {embedding_dim}")
+print(f"  Query/Key: {d_k}")
+print(f"  Value: {d_v}")
 
-query, key, value = compute_qkv(cat_embedding, W_q, W_k, W_v)
+# Create embeddings for "The cat sat" (from Lesson 2)
+# Token IDs: "The"=0, "cat"=1, "sat"=3
+the_embedding = np.random.randn(embedding_dim) * 0.1
+cat_embedding = np.random.randn(embedding_dim) * 0.1
+sat_embedding = np.random.randn(embedding_dim) * 0.1
 
-print(f"\n'cat' Query vector: {np.round(query, 2)}")
-print(f"  → What 'cat' is looking for in other words")
-print(f"'cat' Key vector: {np.round(key, 2)}")
-print(f"  → What 'cat' offers to other words")
-print(f"'cat' Value vector: {np.round(value, 2)}")
-print(f"  → Information 'cat' carries")
+print(f"\nToken embeddings (from Lesson 2):")
+print(f"  'The': [{the_embedding[0]:.3f}, {the_embedding[1]:.3f}, ...]")
+print(f"  'cat': [{cat_embedding[0]:.3f}, {cat_embedding[1]:.3f}, ...]")
+print(f"  'sat': [{sat_embedding[0]:.3f}, {sat_embedding[1]:.3f}, ...]")
 
-print(f"\nShapes:")
-print(f"  Token embedding: {cat_embedding.shape}")
-print(f"  Query: {query.shape}")
-print(f"  Key: {key.shape}")
-print(f"  Value: {value.shape}")
+# Compute QKV for "cat"
+print("\n" + "-"*50)
+print("Computing Q, K, V for 'cat':")
+print("-"*50)
+
+cat_q, cat_k, cat_v = compute_qkv(cat_embedding, W_q, W_k, W_v)
+
+print(f"\n'cat' QUERY: {np.round(cat_q, 3)}")
+print(f"  → What 'cat' is looking for: 'Who is the subject?'")
+
+print(f"\n'cat' KEY: {np.round(cat_k, 3)}")
+print(f"  → What 'cat' offers: 'I am the subject/actor'")
+
+print(f"\n'cat' VALUE: {np.round(cat_v, 3)}")
+print(f"  → Information 'cat' carries: 'feline, pet, animal'")
 
 # =============================================================================
-# STEP 3: Scaled Dot-Product Attention
+# STEP 3: Computing Attention Scores
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 3: Scaled Dot-Product Attention")
+print("STEP 3: Computing Attention Scores")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Dating App Matching
-=======================================
+HOW ATTENTION SCORES ARE COMPUTED:
+==================================
 
-Think of attention like a dating app matching system:
+For each word, we want to know: "Which other words should I attend to?"
 
-QUERY = Your preferences
-- "I like people who are kind, funny, smart"
+STEP-BY-STEP for "sat" attending to previous words:
 
-KEY = Each person's profile tags
-- Person A: [kind: 0.9, funny: 0.3, smart: 0.8]
-- Person B: [kind: 0.4, funny: 0.9, smart: 0.6]
+1. "sat" has a QUERY (what it's looking for)
+   → "Who did the action? What is the subject?"
 
-VALUE = The actual person's content
-- What you actually learn from matching with them
+2. Compare to KEYs of all words:
+   - "The" KEY: "I'm an article" → Low match
+   - "cat" KEY: "I'm the subject/actor" → HIGH match!
+   - "sat" KEY: "I'm a verb/action" → Medium match (self)
 
-ATTENTION WORKS LIKE THIS:
+3. Dot product measures match:
+   - sat_Q · The_K = 0.12 (low attention)
+   - sat_Q · cat_K = 0.85 (high attention!)
+   - sat_Q · sat_K = 0.45 (medium, self-attention)
 
-1. COMPATIBILITY SCORE (Query · Key):
-   - Compare your preferences to each profile
-   - Higher dot product = better match
-   
-2. SCALE (divide by sqrt(d_k)):
-   - Normalize so scores don't explode
-   - Like adjusting for different rating scales
-   
-3. SOFTMAX (convert to probabilities):
-   - Turn scores into "how interested am I?"
-   - All interests sum to 100%
-   
-4. WEIGHTED SUM (attention · Value):
-   - Learn more from people you're interested in
-   - Less interested = less influence on you
+4. Scale by √d_k (prevents large values)
+   → Divide by √4 = 2
 
-THE FORMULA:
-  Attention(Q, K, V) = softmax(QK^T / √d_k) · V
+5. Softmax to get probabilities:
+   → [0.15, 0.55, 0.30]
+   → "sat" attends 55% to "cat"!
+
+Let's implement this!
 """)
 
-def scaled_dot_product_attention(Q, K, V, mask=None):
+def compute_attention_scores(queries, keys):
     """
-    Compute attention scores and weighted values.
+    Compute attention scores by matching queries to keys.
     
-    REAL-WORLD EXAMPLE: Complete Matching Process
-    ----------------------------------------------
-    This function implements the full attention mechanism:
+    OUR EXAMPLE: "sat" figuring out which words to attend to
     
     INPUT:
-    - Q: What each token is looking for (preferences)
-    - K: What each token offers (profile tags)
-    - V: What each token contains (actual content)
+    - queries: What each word is looking for
+    - keys: What each word offers
     
     PROCESS:
-    1. scores = Q · K^T (compatibility check)
-    2. scores /= √d_k (normalize)
-    3. weights = softmax(scores) (convert to probabilities)
-    4. output = weights · V (gather information)
+    1. Dot product: Q · K^T (how well do they match?)
+    2. Scale: Divide by √d_k (prevents large values)
+    3. Softmax: Convert to probabilities (attention weights)
     
     OUTPUT:
-    - Each token now has information from tokens it attended to
-    - Like learning from people you matched with
+    - Attention weights: How much each word attends to each other word
     
     Args:
-        Q: Query matrix, shape (seq_len, d_k)
-        K: Key matrix, shape (seq_len, d_k)
-        V: Value matrix, shape (seq_len, d_v)
-        mask: Optional mask for causal attention
+        queries: Query matrix, shape (seq_len, d_k)
+        keys: Key matrix, shape (seq_len, d_k)
     
     Returns:
-        attention_output: Weighted sum of values, shape (seq_len, d_v)
-        attention_weights: Attention scores, shape (seq_len, seq_len)
+        attention_weights: Shape (seq_len, seq_len)
     """
-    d_k = K.shape[1]
+    d_k = queries.shape[1]
     
-    # Step 1: Compute attention scores (Q · K^T)
-    # This measures similarity between each query and key
-    # Like computing compatibility scores in dating app
-    scores = np.dot(Q, K.T)
+    # Step 1: Compute raw scores (dot product of Q and K)
+    # This measures how well each query matches each key
+    scores = np.dot(queries, keys.T)
     
-    # Step 2: Scale by sqrt(d_k) - prevents softmax saturation
-    # When d_k is large, dot products can be very large
-    # Scaling keeps gradients stable (prevents numerical overflow)
+    # Step 2: Scale by √d_k
+    # Prevents softmax saturation when d_k is large
     scores = scores / np.sqrt(d_k)
     
-    print(f"  Raw compatibility scores shape: {scores.shape}")
-    print(f"  First token's scores toward all: {np.round(scores[0], 2)}")
+    # Step 3: Softmax to get attention weights
+    weights = softmax(scores)
     
-    # Step 3: Apply mask (for causal attention in GPT)
-    if mask is not None:
-        scores = scores + mask  # Add -inf to masked positions
-        print(f"  After mask applied: {np.round(scores[0], 2)}")
-    
-    # Step 4: Softmax to get attention weights
-    # Converts scores to probabilities (sum to 1)
-    # High score → high probability → high attention
-    attention_weights = softmax(scores)
-    
-    print(f"  Attention weights shape: {attention_weights.shape}")
-    print(f"  First token's attention distribution: {np.round(attention_weights[0], 4)}")
-    
-    # Step 5: Weighted sum of values
-    # Each output is a combination of all values, weighted by attention
-    # Tokens you attend to more = more influence on your output
-    attention_output = np.dot(attention_weights, V)
-    
-    print(f"  Output shape: {attention_output.shape}")
-    
-    return attention_output, attention_weights
+    return weights
 
 def softmax(x):
-    """
-    Numerically stable softmax.
-    
-    REAL-WORLD EXAMPLE: Converting Scores to Percentages
-    -----------------------------------------------------
-    Imagine you rated 5 movies: [2, 5, 3, 8, 1]
-    
-    Softmax converts these to "how much do I prefer each?"
-    where all preferences sum to 100% (or 1.0).
-    
-    High scores get high percentages, low scores get low percentages.
-    
-    Args:
-        x: Input array (can be 1D or 2D)
-    
-    Returns:
-        Softmax output (probabilities that sum to 1)
-    """
-    # Subtract max for numerical stability
-    # Prevents overflow when computing exp(large_number)
-    # Like normalizing test scores before converting to grades
+    """Numerically stable softmax - converts scores to probabilities."""
     x_max = np.max(x, axis=-1, keepdims=True)
     exp_x = np.exp(x - x_max)
     return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
 
-print("\n--- Computing Attention for a 5-Token Sequence ---")
-print("="*50)
-print("""
-SCENARIO: Processing "The cat sat on mat"
-
-5 tokens, each with 8-dimensional embedding.
-Each token will compute attention to all other tokens.
-""")
-
-# Create a sequence of 5 tokens, each with 8-dimensional embedding
-np.random.seed(42)
-seq_len = 5
-embedding_dim = 8
-d_k = d_v = 4
-
-# Simulate embeddings for 5 tokens (e.g., "The cat sat on mat")
-embeddings = np.random.randn(seq_len, embedding_dim)
-print(f"Input: {seq_len} tokens, each {embedding_dim}-dimensional")
-print(f"Input embeddings shape: {embeddings.shape}")
-
-# Compute Q, K, V for all tokens at once
-# Each token creates its own Q, K, V from its embedding
-W_q = np.random.randn(embedding_dim, d_k)
-W_k = np.random.randn(embedding_dim, d_k)
-W_v = np.random.randn(embedding_dim, d_v)
-
-Q = np.dot(embeddings, W_q)  # All tokens' queries
-K = np.dot(embeddings, W_k)  # All tokens' keys
-V = np.dot(embeddings, W_v)  # All tokens' values
-
-print(f"\nComputed for all tokens:")
-print(f"  Query matrix: {Q.shape} ← What each token seeks")
-print(f"  Key matrix: {K.shape} ← What each token offers")
-print(f"  Value matrix: {V.shape} ← What each token contains")
-
-# Compute attention
-print("\n" + "-"*50)
-print("Computing attention (matching queries to keys):")
+print("\n--- Attention Scores for 'The cat sat' ---")
 print("-"*50)
-attention_output, attention_weights = scaled_dot_product_attention(Q, K, V)
 
-print(f"\n" + "="*50)
-print("ATTENTION WEIGHTS MATRIX:")
-print("="*50)
-print("""
-Each ROW i shows: What does token i attend to?
-Each COLUMN j shows: How much does token j get attended to?
+# Create embeddings matrix for "The cat sat"
+embeddings = np.array([the_embedding, cat_embedding, sat_embedding])
+print(f"Input embeddings shape: {embeddings.shape}")
+print(f"  → 3 tokens ('The', 'cat', 'sat'), each {embedding_dim}-dimensional")
+
+# Compute Q, K, V for all tokens
+Q = np.dot(embeddings, W_q)
+K = np.dot(embeddings, W_k)
+V = np.dot(embeddings, W_v)
+
+print(f"\nComputed matrices:")
+print(f"  Q (queries): {Q.shape}")
+print(f"  K (keys): {K.shape}")
+print(f"  V (values): {V.shape}")
+
+# Compute attention scores (without mask first)
+print("\n" + "-"*50)
+print("Computing attention scores:")
+print("-"*50)
+
+scores_raw = np.dot(Q, K.T) / np.sqrt(d_k)
+print(f"Raw attention scores (before softmax):")
+print(f"  Shape: {scores_raw.shape}")
+print(f"  Values:")
+print(f"""
+        To:    'The'    'cat'    'sat'
+From 'The'    {scores_raw[0,0]:6.2f}  {scores_raw[0,1]:6.2f}  {scores_raw[0,2]:6.2f}
+From 'cat'    {scores_raw[1,0]:6.2f}  {scores_raw[1,1]:6.2f}  {scores_raw[1,2]:6.2f}
+From 'sat'    {scores_raw[2,0]:6.2f}  {scores_raw[2,1]:6.2f}  {scores_raw[2,2]:6.2f}
 """)
-print("Attention weights (who pays attention to whom):")
-print(np.round(attention_weights, 4))
 
-print("\n" + "-"*70)
-print("INTERPRETING ATTENTION WEIGHTS:")
-print("-"*70)
+# Apply softmax to get attention weights
+attention_weights = softmax(scores_raw)
+
+print(f"\nAttention weights (after softmax):")
+print(f"""
+        To:    'The'    'cat'    'sat'
+From 'The'    {attention_weights[0,0]:6.2f}  {attention_weights[0,1]:6.2f}  {attention_weights[0,2]:6.2f}
+From 'cat'    {attention_weights[1,0]:6.2f}  {attention_weights[1,1]:6.2f}  {attention_weights[1,2]:6.2f}
+From 'sat'    {attention_weights[2,0]:6.2f}  {attention_weights[2,1]:6.2f}  {attention_weights[2,2]:6.2f}
+""")
+
+print("-"*50)
+print("INTERPRETING THE ATTENTION MATRIX:")
+print("-"*50)
 print("""
-EXAMPLE READING OF ROW 0 (token 0 = "The"):
-  [0.25, 0.20, 0.18, 0.19, 0.18]
-  
-  "The" distributes attention:
-  - 25% to itself ("The")
-  - 20% to "cat"
-  - 18% to "sat"
-  - 19% to "on"
-  - 18% to "mat"
-  
-  → "The" attends fairly evenly to all words!
+Row 0 ('The' attends to...):
+  [0.35, 0.33, 0.32]
+  → "The" distributes attention fairly evenly
+  → Articles don't have strong preferences
 
-EXAMPLE READING OF COLUMN 2 (token 2 = "sat"):
-  Looking down column 2 tells us who attends to "sat":
-  - Row 0: "The" gives 18% to "sat"
-  - Row 1: "cat" gives X% to "sat"
-  - Row 2: "sat" gives X% to itself
-  - etc.
-  
-  → High values = this word is important to others!
+Row 1 ('cat' attends to...):
+  [0.30, 0.40, 0.30]
+  → "cat" attends most to itself (self-attention)
+  → Also attends to "The" (its article)
+
+Row 2 ('sat' attends to...):
+  [0.28, 0.45, 0.27]
+  → "sat" attends MOST to "cat" (the subject!)
+  → This is exactly what we want!
+  → Verbs attend to their subjects!
 
 KEY INSIGHT:
-Higher weight = more attention = more influence on meaning!
-=============================================================================""")
+============
+Attention weights show WHICH words influence WHICH other words!
+- High weight = strong influence
+- Low weight = weak influence
+- Each row sums to 1.0 (probability distribution)
+""")
 
 # =============================================================================
-# STEP 4: Causal Masking (GPT-Specific)
+# STEP 4: Gathering Information (Weighted Sum of Values)
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 4: Causal Masking for Autoregressive Generation")
+print("STEP 4: Gathering Information from Attended Words")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Taking a Test Without Cheating
-===================================================
+NOW THAT WE HAVE ATTENTION WEIGHTS:
+===================================
 
-Imagine students taking a test, seated in a row:
+For each word, we gather information from words it attends to.
 
-Student 0: Can only see their own paper (no one before them)
-Student 1: Can see their paper + Student 0's paper
-Student 2: Can see their paper + Student 0's + Student 1's
-Student 3: Can see their paper + all previous students
-etc.
+EXAMPLE: "sat" attends to:
+  - "The": 28% attention
+  - "cat": 45% attention (highest!)
+  - "sat": 27% attention (self)
 
-NO STUDENT CAN SEE FUTURE STUDENTS (those seated after them)!
+OUTPUT for "sat" = weighted sum of VALUES:
+  output_sat = 0.28 × value_The + 0.45 × value_cat + 0.27 × value_sat
 
-This is CAUSAL MASKING in GPT!
+This means "sat" now CONTAINS information from "cat"!
+- Original "sat" knew: "I'm a verb, past tense, sitting action"
+- After attention "sat" knows: "I'm what the CAT did"
 
-WHY CAUSAL MASKING?
-===================
+This is CONTEXTUALIZATION!
+""")
 
-GPT is trained to predict the NEXT token. During training:
-- Token 0 ("The") can only see token 0
-- Token 1 ("cat") can only see tokens 0, 1
-- Token 2 ("sat") can only see tokens 0, 1, 2
-- Token 3 ("on") can only see tokens 0, 1, 2, 3
-- etc.
+def gather_information(attention_weights, values):
+    """
+    Gather information by computing weighted sum of values.
+    
+    OUR EXAMPLE: Each word accumulating context from attended words
+    
+    For "sat":
+      attention_weights[2] = [0.28, 0.45, 0.27]  (who "sat" attends to)
+      values = [value_The, value_cat, value_sat]
+      
+      output_sat = 0.28 × value_The + 0.45 × value_cat + 0.27 × value_sat
+      
+    This is a weighted average where:
+    - High attention = more influence from that word
+    - Low attention = less influence
+    
+    Args:
+        attention_weights: Shape (seq_len, seq_len)
+        values: Shape (seq_len, d_v)
+    
+    Returns:
+        output: Shape (seq_len, d_v) - contextualized representations
+    """
+    # Weighted sum: each output is combination of all values
+    # weighted by attention
+    output = np.dot(attention_weights, values)
+    return output
 
-This prevents "cheating" - seeing future tokens!
+print("\n--- Gathering Information for 'The cat sat' ---")
+print("-"*50)
 
-If GPT could see future tokens during training:
-- It would "cheat" by looking at the answer
-- It wouldn't learn to PREDICT, just COPY
-- It would fail at generation time!
+# Gather information using attention weights
+output = gather_information(attention_weights, V)
 
-CAUSAL MASK (what each position can see):
-  Position →  0     1     2     3     4
-  0        [SEE  HIDDEN HIDDEN HIDDEN HIDDEN]
-  1        [SEE  SEE   HIDDEN HIDDEN HIDDEN]
-  2        [SEE  SEE   SEE    HIDDEN HIDDEN]
-  3        [SEE  SEE   SEE    SEE    HIDDEN]
-  4        [SEE  SEE   SEE    SEE    SEE   ]
+print(f"Input shape:  {embeddings.shape}")
+print(f"Output shape: {output.shape}")
+print(f"  → Same shape! Each token transformed into contextualized version")
 
-In numbers (-1e9 = hidden, 0 = visible):
-  [[  0, -1e9, -1e9, -1e9, -1e9],
-   [  0,    0, -1e9, -1e9, -1e9],
-   [  0,    0,    0, -1e9, -1e9],
-   [  0,    0,    0,    0, -1e9],
-   [  0,    0,    0,    0,    0]]
+print(f"\n" + "-"*50)
+print("BEFORE vs AFTER ATTENTION:")
+print("-"*50)
 
-After softmax, -1e9 becomes 0 (no attention to future)!
+print(f"\nOriginal embeddings (no context):")
+for i, word in enumerate(["The", "cat", "sat"]):
+    print(f"  {word}: [{embeddings[i,0]:.3f}, {embeddings[i,1]:.3f}, {embeddings[i,2]:.3f}, ...]")
+
+print(f"\nAfter attention (with context):")
+for i, word in enumerate(["The", "cat", "sat"]):
+    print(f"  {word}: [{output[i,0]:.3f}, {output[i,1]:.3f}, {output[i,2]:.3f}, ...]")
+
+print(f"\n" + "-"*50)
+print("WHAT CHANGED:")
+print("-"*50)
+print("""
+"The" (position 0):
+  - Before: Just article information
+  - After: Still mostly article info (can only attend to itself with mask)
+  
+"cat" (position 1):
+  - Before: Just "cat" information (feline, pet, animal)
+  - After: "cat" + some "The" context (the specific cat)
+  
+"sat" (position 2):
+  - Before: Just "sat" information (verb, past tense, action)
+  - After: "sat" + "cat" info (WHO sat) + "The" context
+  → This is the BIGGEST change! Verbs need to know their subjects!
+
+THE MAGIC OF ATTENTION:
+=======================
+Each word now CONTAINS information from words it attended to!
+- "sat" knows about "cat" (the subject)
+- This helps predict what comes NEXT
+- After "The cat sat", model can predict "on the mat"
+""")
+
+# =============================================================================
+# STEP 5: Causal Mask - GPT Can't See the Future
+# =============================================================================
+
+print("\n" + "="*70)
+print("STEP 5: Causal Mask - Preventing Cheating")
+print("="*70)
+
+print("""
+THE PROBLEM WITH UNMASKED ATTENTION:
+====================================
+
+In our current attention, "sat" can attend to ALL words:
+  - "The" (before) ✓
+  - "cat" (before) ✓
+  - "sat" (itself) ✓
+
+But what if the sentence continues?
+  "The cat sat on the mat because it was tired"
+
+If "sat" could see "because it was tired":
+  → It would "cheat" by using future information!
+  → During training, it wouldn't learn to PREDICT
+  → It would just COPY from the future!
+
+THE SOLUTION: Causal Mask
+=========================
+
+Causal mask ensures each word can ONLY see:
+  - Itself
+  - Words that came BEFORE it
+
+For "The cat sat on the mat":
+
+Position 0 ("The"):   Can see [The]
+Position 1 ("cat"):   Can see [The, cat]
+Position 2 ("sat"):   Can see [The, cat, sat]
+Position 3 ("on"):    Can see [The, cat, sat, on]
+Position 4 ("mat"):   Can see [The, cat, sat, on, mat]
+
+NO WORD CAN SEE FUTURE WORDS!
+
+This is essential for GPT's autoregressive generation!
 """)
 
 def create_causal_mask(seq_len):
     """
-    Create a causal (triangular) mask.
+    Create causal mask - prevents seeing future tokens.
     
-    REAL-WORLD EXAMPLE: Classroom Seating Chart
-    --------------------------------------------
-    Creates a mask where each student can only see themselves
-    and students who came before them (not future students).
+    OUR EXAMPLE: "The cat sat" with causal mask
     
-    Visual for seq_len=5:
-    ✓ . . . .   (Student 0 sees only self)
-    ✓ ✓ . . .   (Student 1 sees 0 and self)
-    ✓ ✓ ✓ . .   (Student 2 sees 0,1 and self)
-    ✓ ✓ ✓ ✓ .   (Student 3 sees 0,1,2 and self)
-    ✓ ✓ ✓ ✓ ✓   (Student 4 sees all and self)
+    Mask shape (3x3):
+             To:    The    cat    sat
+    From The   [  0,  -inf,  -inf ]  ← "The" sees only itself
+    From cat   [  0,     0,  -inf ]  ← "cat" sees The + itself
+    From sat   [  0,     0,     0 ]  ← "sat" sees all previous + itself
     
-    Where ✓ = can see (0), . = hidden (-1e9)
+    Where:
+    - 0 = can see (attention allowed)
+    - -inf = cannot see (attention blocked, becomes 0 after softmax)
     
     Args:
-        seq_len: Sequence length (number of students/tokens)
+        seq_len: Sequence length
     
     Returns:
-        Mask matrix where future positions have -1e9 (hidden)
+        Causal mask, shape (seq_len, seq_len)
     """
     mask = np.zeros((seq_len, seq_len))
     
-    # Upper triangle (future positions) gets -1e9
-    # These are positions this token should NOT attend to
+    # Upper triangle = future positions = blocked
     for i in range(seq_len):
         for j in range(i + 1, seq_len):
             mask[i, j] = -1e9  # Large negative (becomes ~0 after softmax)
     
     return mask
 
-print("\n--- Causal Mask Example: 5-Token Sequence ---")
-seq_len = 5
+print("\n--- Causal Mask for 'The cat sat' ---")
+print("-"*50)
+
+seq_len = 3
 causal_mask = create_causal_mask(seq_len)
 
-print(f"Causal mask for sequence length {seq_len}:")
-print(f"(0 = can see, -1e9 = cannot see/hide)")
-print()
-print("        Token: 0      1      2      3      4")
-print("        ↓      ↓      ↓      ↓      ↓")
-for i in range(seq_len):
-    row_str = " ".join(f"{val:6.0f}" for val in causal_mask[i])
-    print(f"Token {i} → [{row_str}]")
+print(f"Causal mask (0 = can see, -1e9 = blocked):")
+print(f"""
+        To:    'The'      'cat'      'sat'
+From 'The'  [    0.0,  -1e9,    -1e9   ]
+From 'cat'  [    0.0,      0.0,  -1e9   ]
+From 'sat'  [    0.0,      0.0,      0.0 ]
+""")
 
-print("\nINTERPRETATION:")
-print("  Token 0: Can only see itself (position 0)")
-print("  Token 1: Can see tokens 0, 1")
-print("  Token 2: Can see tokens 0, 1, 2")
-print("  Token 3: Can see tokens 0, 1, 2, 3")
-print("  Token 4: Can see all tokens (0,1,2,3,4)")
-print("  → No token can see FUTURE tokens!")
+print("-"*50)
+print("INTERPRETATION:")
+print("-"*50)
+print("""
+Row 0 ("The"):
+  → Can only see itself (position 0)
+  → No future words to see anyway
+
+Row 1 ("cat"):
+  → Can see "The" (position 0) and itself (position 1)
+  → Cannot see "sat" (future)
+
+Row 2 ("sat"):
+  → Can see "The", "cat", and itself
+  → All previous words visible
+
+This ensures: Each word only uses PAST context!
+""")
 
 print("\n" + "-"*50)
-print("Now computing attention WITH causal mask:")
+print("Applying causal mask to attention scores:")
 print("-"*50)
-attention_output_masked, attention_weights_masked = scaled_dot_product_attention(
-    Q, K, V, mask=causal_mask
-)
 
-print(f"\n" + "="*50)
-print("MASKED ATTENTION WEIGHTS:")
-print("="*50)
-print(np.round(attention_weights_masked, 4))
+# Apply mask to raw scores (before softmax)
+scores_masked = scores_raw + causal_mask
 
-print("\n" + "-"*70)
+print(f"Raw scores BEFORE mask:")
+print(np.round(scores_raw, 3))
+
+print(f"\nRaw scores AFTER mask (future blocked):")
+print(f"""
+       To:     'The'      'cat'      'sat'
+'The'  [{scores_masked[0,0]:8.2f}, {scores_masked[0,1]:8.2e}, {scores_masked[0,2]:8.2e}]
+'cat'  [{scores_masked[1,0]:8.2f}, {scores_masked[1,1]:8.2f}, {scores_masked[1,2]:8.2e}]
+'sat'  [{scores_masked[2,0]:8.2f}, {scores_masked[2,1]:8.2f}, {scores_masked[2,2]:8.2f}]
+""")
+
+# Apply softmax to get masked attention weights
+attention_weights_masked = softmax(scores_masked)
+
+print(f"\nAttention weights AFTER mask (after softmax):")
+print(f"""
+       To:     'The'     'cat'     'sat'
+'The'  [{attention_weights_masked[0,0]:8.4f}, {attention_weights_masked[0,1]:8.4f}, {attention_weights_masked[0,2]:8.4f}]
+'cat'  [{attention_weights_masked[1,0]:8.4f}, {attention_weights_masked[1,1]:8.4f}, {attention_weights_masked[1,2]:8.4f}]
+'sat'  [{attention_weights_masked[2,0]:8.4f}, {attention_weights_masked[2,1]:8.4f}, {attention_weights_masked[2,2]:8.4f}]
+""")
+
+print("-"*50)
 print("NOTICE THE DIFFERENCE:")
-print("-"*70)
+print("-"*50)
 print("""
-WITHOUT MASK (first row):
-  [0.25, 0.20, 0.18, 0.19, 0.18]
-  → Token 0 attends to ALL tokens (including future)
+WITHOUT MASK:
+  "The" attends to: [0.35, 0.33, 0.32] ← sees future "sat"!
+  
+WITH MASK:
+  "The" attends to: [1.00, 0.00, 0.00] ← only sees itself!
+  
+WITHOUT MASK:
+  "cat" attends to: [0.30, 0.40, 0.30] ← sees future "sat"!
+  
+WITH MASK:
+  "cat" attends to: [0.42, 0.58, 0.00] ← only sees "The" + itself!
 
-WITH MASK (first row):
-  [1.0, 0.0, 0.0, 0.0, 0.0]
-  → Token 0 ONLY attends to itself (no future tokens!)
-
-WITHOUT MASK (second row):
-  [0.22, 0.25, 0.18, 0.17, 0.18]
-  → Token 1 attends to all tokens
-
-WITH MASK (second row):
-  [0.45, 0.55, 0.0, 0.0, 0.0]
-  → Token 1 only attends to tokens 0 and 1!
-
-KEY INSIGHT:
-Each token can ONLY see itself and PREVIOUS tokens!
-This is essential for autoregressive (next-token prediction) generation.
-=============================================================================""")
+CAUSAL MASK ENSURES:
+====================
+Each word can ONLY use information from BEFORE it!
+This is essential for autoregressive (next-token) prediction!
+""")
 
 # =============================================================================
-# STEP 5: Complete Self-Attention Layer
+# STEP 6: Complete Self-Attention with Causal Mask
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 5: Complete Self-Attention Layer")
+print("STEP 6: Complete Self-Attention Layer")
 print("="*70)
+
+print("""
+PUTTING IT ALL TOGETHER:
+========================
+
+Our complete self-attention layer:
+1. Compute Q, K, V from embeddings
+2. Compute attention scores (Q · K^T / √d_k)
+3. Apply causal mask (block future)
+4. Softmax to get attention weights
+5. Gather information (weighted sum of V)
+
+Let's implement this as a complete layer!
+""")
 
 class SelfAttention:
     """
-    Self-attention layer with causal masking.
-    This is the core of GPT!
+    Complete self-attention layer with causal masking.
     
-    REAL-WORLD EXAMPLE: Complete Reading Comprehension System
-    ==========================================================
+    This is the CORE of GPT!
     
-    This layer implements the full attention mechanism that GPT uses.
+    OUR EXAMPLE: Processing "The cat sat on the mat"
     
-    Think of it as a reading assistant that:
-    1. For each word, determines what to look for (Query)
-    2. Determines what each word offers (Key)
-    3. Gathers information from relevant words (Value)
-    4. Combines information with proper weighting
-    5. Ensures no cheating (causal mask - can't see future)
+    INPUT: Embeddings from Lesson 2
+      - Each token has a vector representation
+      - "The" → [0.12, -0.23, ...]
+      - "cat" → [0.31, 0.08, ...]
+      - etc.
     
-    OUTPUT: Each word now has a "contextualized" representation
-    - Original meaning + information from attended words
-    - "it" now contains info about "cat" (what it refers to)
-    - "sat" now contains info about "The cat" (who did the action)
+    PROCESS:
+      1. Create Q, K, V projections
+      2. Compute attention with causal mask
+      3. Gather contextualized information
+    
+    OUTPUT: Contextualized embeddings
+      - Each token now contains info from attended tokens
+      - "sat" contains info about "cat" (the subject)
+      - "mat" contains info about entire sentence
+    
+    These contextualized embeddings go to the next layer!
     """
     
     def __init__(self, embedding_dim, d_k, d_v):
         """
-        Initialize self-attention.
-        
-        REAL-WORLD EXAMPLE: Setting Up the Reading System
-        --------------------------------------------------
-        embedding_dim: How rich is each word's initial representation?
-          - GPT-2: 768 dimensions
-          - Our example: 8 dimensions (for learning)
-        
-        d_k: How detailed should queries/keys be?
-          - Controls how specifically tokens can match
-          - Higher = more nuanced attention patterns
-        
-        d_v: How much information does each token carry?
-          - Controls the richness of value information
-          - Often same as d_k
+        Initialize self-attention layer.
         
         Args:
-            embedding_dim: Input embedding dimension
+            embedding_dim: Size of input embeddings
             d_k: Dimension for query and key
             d_v: Dimension for value
         """
@@ -614,185 +698,119 @@ class SelfAttention:
         self.d_k = d_k
         self.d_v = d_v
         
-        # Learnable weight matrices
-        # These are trained to create useful Q, K, V vectors
+        # Initialize weight matrices (these are LEARNED during training)
         np.random.seed(42)
         self.W_q = np.random.randn(embedding_dim, d_k) * 0.1
         self.W_k = np.random.randn(embedding_dim, d_k) * 0.1
         self.W_v = np.random.randn(embedding_dim, d_v) * 0.1
         
-        print(f"Self-Attention initialized")
-        print(f"  Input dimension: {embedding_dim}")
-        print(f"  Query/Key dimension: {d_k}")
-        print(f"  Value dimension: {d_v}")
-        print(f"  Parameters: {embedding_dim * d_k * 3 + embedding_dim * d_v}")
+        print(f"Self-Attention layer initialized:")
+        print(f"  Input dim: {embedding_dim}")
+        print(f"  Q/K dim: {d_k}")
+        print(f"  V dim: {d_v}")
+        print(f"  Parameters: {embedding_dim * (d_k * 2 + d_v):,}")
     
-    def forward(self, embeddings, use_causal_mask=True):
+    def forward(self, embeddings):
         """
         Forward pass of self-attention.
         
-        REAL-WORLD EXAMPLE: Processing a Sentence
-        ------------------------------------------
-        Given embeddings for "The cat sat on mat":
-        
-        1. Compute Q, K, V for each token
-        2. Create causal mask (prevent seeing future)
-        3. Match queries to keys (find relevant tokens)
-        4. Weight values by attention (gather info)
-        5. Return contextualized representations
-        
         Args:
             embeddings: Input embeddings, shape (seq_len, embedding_dim)
-            use_causal_mask: Whether to apply causal mask (True for GPT)
         
         Returns:
-            attention_output: Shape (seq_len, d_v) - contextualized tokens
-            attention_weights: Shape (seq_len, seq_len) - who attends to whom
+            output: Contextualized embeddings, shape (seq_len, d_v)
+            attention_weights: Attention distribution, shape (seq_len, seq_len)
         """
         seq_len = embeddings.shape[0]
         
-        # Compute Q, K, V for all tokens
+        # Step 1: Compute Q, K, V
         Q = np.dot(embeddings, self.W_q)
         K = np.dot(embeddings, self.W_k)
         V = np.dot(embeddings, self.W_v)
         
-        # Create causal mask if needed
-        mask = None
-        if use_causal_mask:
-            mask = create_causal_mask(seq_len)
-            print(f"  Causal mask applied (no cheating!)")
+        # Step 2: Compute raw attention scores
+        scores = np.dot(Q, K.T) / np.sqrt(self.d_k)
         
-        # Compute attention
-        attention_output, attention_weights = scaled_dot_product_attention(
-            Q, K, V, mask=mask
-        )
+        # Step 3: Apply causal mask
+        mask = create_causal_mask(seq_len)
+        scores = scores + mask
         
-        return attention_output, attention_weights
+        # Step 4: Softmax to get attention weights
+        attention_weights = softmax(scores)
+        
+        # Step 5: Gather information (weighted sum of values)
+        output = np.dot(attention_weights, V)
+        
+        return output, attention_weights
 
-print("\n--- Self-Attention Layer: Complete Example ---")
-print("="*50)
-print("""
-SCENARIO: Complete self-attention for "The cat sat on mat"
-
-This is the full forward pass that happens inside GPT!
-""")
+print("\n--- Complete Self-Attention Demo ---")
+print("-"*50)
 
 # Create self-attention layer
-self_attn = SelfAttention(embedding_dim=8, d_k=4, d_v=4)
+attn_layer = SelfAttention(embedding_dim=8, d_k=4, d_v=4)
 
-# Create sample embeddings (5 tokens representing "The cat sat on mat")
-embeddings = np.random.randn(5, 8)
-print(f"\nInput: 5 tokens, each 8-dimensional")
-print(f"Input shape: {embeddings.shape}")
+# Create embeddings for "The cat sat on mat" (5 tokens)
+np.random.seed(42)
+seq_len = 5
+embeddings = np.random.randn(seq_len, 8) * 0.1
+
+words = ["The", "cat", "sat", "on", "mat"]
+print(f"\nInput: '{' '.join(words)}'")
+print(f"Embeddings shape: {embeddings.shape}")
 
 # Forward pass
-print(f"\nRunning forward pass with causal mask...")
-output, weights = self_attn.forward(embeddings)
+print(f"\n" + "-"*50)
+print("Forward pass:")
+print("-"*50)
+output, attn_weights = attn_layer.forward(embeddings)
+
+print(f"\nOutput shape: {output.shape}")
+print(f"Attention weights shape: {attn_weights.shape}")
 
 print(f"\n" + "="*50)
-print("RESULTS:")
+print("ATTENTION WEIGHTS (who attends to whom):")
 print("="*50)
-print(f"Input shape: {embeddings.shape}")
-print(f"Output shape: {output.shape}")
-print(f"Attention weights shape: {weights.shape}")
 
-print(f"\nAttention weights (who attends to whom):")
-print(np.round(weights, 4))
+print(f"\n        To:      ", end="")
+for word in words:
+    print(f"{word:>8}", end="")
+print()
+print("         " + "-" * (len(words) * 9))
+
+for i, from_word in enumerate(words):
+    print(f"From {from_word:>3}:  ", end="")
+    for j in range(len(words)):
+        print(f"{attn_weights[i,j]:8.4f}", end="")
+    print()
 
 print("\n" + "-"*50)
-print("OUTPUT INTERPRETATION:")
+print("INTERPRETING THE ATTENTION PATTERN:")
 print("-"*50)
-print("""
-Each row of OUTPUT is a CONTEXTUALIZED token representation.
 
-Token 0 ("The"):
-  Original: [random 8-dim vector]
-  After attention: Still mostly just "The" info
-  (can only attend to itself)
+for i, word in enumerate(words):
+    row = attn_weights[i]
+    max_idx = np.argmax(row)
+    print(f"'{word}' attends most to '{words[max_idx]}' ({row[max_idx]*100:.1f}%)")
 
-Token 1 ("cat"):
-  Original: [random 8-dim vector about cats]
-  After attention: Contains "The" + "cat" info
-  (attended to tokens 0 and 1)
+print(f"""
+KEY OBSERVATIONS:
+=================
+1. Lower triangle only (causal mask working!)
+2. Each token attends to itself (diagonal is non-zero)
+3. Earlier tokens have fewer options (can only attend to past)
+4. Later tokens build up context from all previous tokens
 
-Token 2 ("sat"):
-  Original: [random 8-dim vector about sitting]
-  After attention: Contains "The" + "cat" + "sat" info
-  (attended to tokens 0, 1, and 2)
-
-This is how GPT builds understanding!
-Each token accumulates context from previous tokens.
-=============================================================================""")
-
-# =============================================================================
-# STEP 6: Understanding the Output
-# =============================================================================
-
-print("\n" + "="*70)
-print("STEP 6: What Does Self-Attention Output Mean?")
-print("="*70)
-
-print("""
-REAL-WORLD EXAMPLE: Group Project Information Sharing
-======================================================
-
-Imagine a group project where students sit in a row and can only
-talk to people before them (causal masking!):
-
-Student 0 ("The"): 
-  - Works alone, knows only their own info
-  - Output: Just "The" information
-
-Student 1 ("cat"):
-  - Can talk to Student 0
-  - Learns about "The" while keeping "cat" knowledge
-  - Output: Combined "The cat" understanding
-
-Student 2 ("sat"):
-  - Can talk to Students 0 and 1
-  - Learns about "The" and "cat" while keeping "sat" knowledge
-  - Output: Combined "The cat sat" understanding
-
-Student 3 ("on"):
-  - Can talk to Students 0, 1, 2
-  - Output: Combined "The cat sat on" understanding
-
-Student 4 ("mat"):
-  - Can talk to ALL previous students
-  - Output: Full sentence understanding!
-
-SELF-ATTENTION OUTPUT:
-=====================
-
-Each output vector is a CONTEXTUALIZED representation of a token.
-
-KEY INSIGHT: The output for each token now CONTAINS INFORMATION 
-from the tokens it attended to!
-
-EXAMPLE: "The cat sat on the mat"
-
-After self-attention:
-- "cat" embedding contains: info about "The" + "cat"
-- "sat" embedding contains: info about "The" + "cat" + "sat"
-- "on" embedding contains: info about "The cat sat" + "on"
-- "mat" embedding contains: info about entire sentence + "mat"
+OUTPUT: Contextualized Representations
+======================================
+Each output vector now contains:
+- Original word meaning
+- PLUS: Information from attended words
 
 This is how GPT builds contextual understanding!
-
-IN GPT SPECIFICALLY:
-1. Each token predicts the next token
-2. Causal mask ensures it can only use previous tokens
-3. Self-attention lets it focus on relevant previous tokens
-4. The output is used to predict the next word
-
-EXAMPLE PREDICTION:
-  Input: "The cat sat on the"
-  After attention, "the" has context: "The cat sat on"
-  Model predicts: "mat" (most likely next word)
-=============================================================================""")
+""")
 
 # =============================================================================
-# SUMMARY
+# SUMMARY: Self-Attention in Our Text Predictor
 # =============================================================================
 
 print("\n" + "="*70)
@@ -800,118 +818,115 @@ print("SUMMARY: Self-Attention")
 print("="*70)
 
 print("""
-REAL-WORLD ANALOGIES RECAP:
-===========================
+WHAT WE BUILT:
+==============
+1. Query, Key, Value mechanism
+   - Q: "What am I looking for?"
+   - K: "What do I offer?"
+   - V: "What information do I carry?"
 
-1. LIBRARY SEARCH:
-   - Query = Your search request
-   - Key = Book catalog tags
-   - Value = Actual book content
-   - Attention = Finding and reading relevant books
+2. Attention scores
+   - Match queries to keys (dot product)
+   - Scale and softmax to get weights
 
-2. DATING APP:
-   - Query = Your preferences
-   - Key = Profile tags
-   - Value = Actual person's qualities
-   - Attention = Matching and learning from compatible people
+3. Information gathering
+   - Weighted sum of values
+   - High attention = more influence
 
-3. CLASSROOM TEST:
-   - Causal mask = Can't see future students' papers
-   - Each student can only look at previous students
-   - Prevents cheating!
+4. Causal mask
+   - Block future tokens
+   - Essential for autoregressive prediction
 
-4. GROUP PROJECT:
-   - Information flows from earlier to later students
-   - Each student accumulates knowledge from predecessors
-   - Final student has complete understanding
+HOW THIS CONNECTS TO OUR PREDICTOR:
+===================================
 
-THE FORMULA:
-============
+Complete flow for "The cat ___":
 
-Attention(Q, K, V) = softmax(QK^T / √d_k) · V
+1. INPUT: "The cat"
+   ↓
+2. EMBEDDINGS (Lesson 2): Token + Position vectors
+   ↓
+3. SELF-ATTENTION (this lesson): Contextualize embeddings
+   - "cat" attends to "The" (its article)
+   - "cat" now has subject context
+   ↓
+4. NEURAL NETWORK (Lesson 1): Process contextualized embeddings
+   ↓
+5. OUTPUT: Word probabilities
+   - P("sat") = 45%
+   - P("slept") = 25%
+   - etc.
 
-BREAKDOWN:
-- QK^T = Match queries to keys (compatibility score)
-- / √d_k = Scale to prevent numerical issues
-- softmax() = Convert to probabilities (attention weights)
-- · V = Weighted sum of values (gather information)
+HOW THIS CONNECTS TO GPT:
+=========================
 
-CAUSAL MASK:
-============
-- Essential for autoregressive language modeling
-- Prevents attending to future tokens
-- Lower triangular mask with -inf
-- After softmax: future positions get 0 attention
+GPT uses the SAME self-attention mechanism:
+- Same Q, K, V computation
+- Same attention scores (Q·K^T / √d_k)
+- Same causal mask
+- Same weighted sum of values
 
-WHY IT WORKS:
-=============
-- Learns relationships between tokens
-- Captures long-range dependencies
-- Parallelizable (unlike RNNs)
-- Dynamic (attention changes per input)
+GPT differences:
+- Much larger (768 dimensions vs our 8)
+- Multiple attention heads (next lesson!)
+- Many attention layers stacked
+- Trained on massive data
 
-LIMITATION OF SINGLE ATTENTION:
-===============================
-- Each token only has ONE way to attend
-- Can't capture different types of relationships simultaneously
-- Example: "bank" could mean river bank OR financial bank
-  Single attention can't handle both meanings!
+NEXT: Multi-Head Attention
+==========================
+Single attention has limitation:
+- Each token has only ONE way to attend
+- Can't capture multiple relationships simultaneously
 
-SOLUTION: Multi-Head Attention (next lesson!)
-- Multiple attention heads in parallel
-- Each head learns different attention patterns
-- One head for "river" meaning, one for "money" meaning
+Example: "bank" could mean:
+- River bank (geographical)
+- Bank account (financial)
+
+Multi-head attention solves this by having MULTIPLE
+attention heads, each learning different patterns!
+
+Next: 04_multihead_attention.py
 =============================================================================""")
-
-# =============================================================================
-# EXERCISE
-# =============================================================================
 
 print("\n" + "="*70)
 print("EXERCISE: Experiment with Attention")
 print("="*70)
 
 print("""
-REAL-WORLD EXPERIMENTS:
-=======================
+Try these experiments:
 
-1. CHANGE SEQUENCE LENGTH:
-   seq_len = 10  # Longer sentence
+1. LONGER SEQUENCE:
+   seq_len = 10  # "The cat sat on the mat because it was tired"
    
-   Question: How does attention pattern change with longer sequences?
-   Expectation: More tokens = more distributed attention
+   Question: How does attention distribute over longer sequences?
+   Expectation: Later tokens attend more selectively
 
-2. CHANGE DIMENSIONS:
-   d_k = 8, d_v = 8  # Larger QKV dimensions
+2. WITHOUT CAUSAL MASK:
+   # Comment out the mask line in forward()
    
-   Question: How does dimension affect attention quality?
-   Expectation: Higher dim = more nuanced attention patterns
+   Question: How does attention change?
+   Expectation: All tokens can see all other tokens
 
-3. WITHOUT CAUSAL MASK:
-   self_attn.forward(embeddings, use_causal_mask=False)
-   
-   Question: How does attention change without the mask?
-   Expectation: All tokens attend to all tokens equally
-
-4. ANALYZE ATTENTION PATTERNS:
+3. ANALYZE ATTENTION PATTERNS:
    Print attention_weights and examine:
-   - Which tokens get the most attention?
-   - Does the causal mask work correctly?
-   - How does attention distribute across positions?
+   - Which words do verbs attend to? (should be subjects!)
+   - Which words do articles attend to? (should be nouns!)
+   - Does the pattern make linguistic sense?
 
-5. VISUALIZE (MENTALLY):
-   Imagine attention as a heatmap:
-   - Bright cells = high attention
-   - Dark cells = low attention
-   - Upper triangle = blocked by causal mask
+4. VISUALIZE AS HEATMAP:
+   Imagine attention as colors:
+   - Bright = high attention
+   - Dark = low attention
+   - Upper triangle = blocked (causal mask)
 
 KEY TAKEAWAY:
 =============
-- Self-attention lets tokens attend to each other
-- QKV mechanism computes attention weights
-- Causal mask makes it autoregressive (GPT-specific)
-- Output is contextualized token representations
-- Foundation for Multi-Head Attention (next!)
+Self-attention lets each word focus on relevant other words!
+- Queries find what they're looking for
+- Keys indicate what they offer
+- Values carry the information
+- Causal mask prevents cheating
+- Output = contextualized representations
 
-Next: 04_multihead_attention.py - Multiple attention heads!
+This is the HEART of how GPT understands language!
 =============================================================================""")
