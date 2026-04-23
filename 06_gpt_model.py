@@ -5,33 +5,59 @@ LESSON 6: Complete GPT Model - Assembling the Full Architecture
 
 Now we assemble all components into the complete GPT model!
 
-REAL-WORLD ANALOGY: Building a Complete Restaurant
-==================================================
+ARCHITECTURE OVERVIEW (from the original GPT paper):
+====================================================
 
-Think of GPT as a restaurant that serves words:
+    ┌─────────────────────────────────────────────────────────┐
+    │                    GPT MODEL                            │
+    │                                                         │
+    │  Input Text ────► Token IDs                             │
+    │                      │                                  │
+    │                      ▼                                  │
+    │  ┌──────────────────────────────────────────────────┐  │
+    │  │ Token Embedding + Position Embedding             │  │
+    │  │   (d_model dimensional vectors)                  │  │
+    │  └──────────────────────────────────────────────────┘  │
+    │                      │                                  │
+    │                      ▼                                  │
+    │  ┌──────────────────────────────────────────────────┐  │
+    │  │           Transformer Block 1                    │  │
+    │  │   ┌─────────────────────────────────────────┐   │  │
+    │  │   │ Multi-Head Self-Attention               │   │  │
+    │  │   │ + Residual + LayerNorm                  │   │  │
+    │  │   │ Feed-Forward Network                    │   │  │
+    │  │   │ + Residual + LayerNorm                  │   │  │
+    │  │   └─────────────────────────────────────────┘   │  │
+    │  └──────────────────────────────────────────────────┘  │
+    │                      │                                  │
+    │                      ▼                                  │
+    │  ┌──────────────────────────────────────────────────┐  │
+    │  │           Transformer Block 2                    │  │
+    │  │   (Same structure as Block 1)                    │  │
+    │  └──────────────────────────────────────────────────┘  │
+    │                      │                                  │
+    │                      ▼                                  │
+    │                   ... (more blocks) ...                │
+    │                      │                                  │
+    │                      ▼                                  │
+    │  ┌──────────────────────────────────────────────────┐  │
+    │  │ Layer Normalization                              │  │
+    │  └──────────────────────────────────────────────────┘  │
+    │                      │                                  │
+    │                      ▼                                  │
+    │  ┌──────────────────────────────────────────────────┐  │
+    │  │ Linear Projection → Softmax → Next Token         │  │
+    │  └──────────────────────────────────────────────────┘  │
+    │                                                         │
+    └─────────────────────────────────────────────────────────┘
 
-1. ENTRANCE (Input)
-   - Customers arrive with orders (token IDs)
-   
-2. MENU TRANSLATOR (Token Embeddings)
-   - Converts order names to kitchen codes
-   - "Margherita Pizza" -> Code #42
-   
-3. SEATING CHART (Position Embeddings)
-   - Tracks order sequence (first appetizer, then main, then dessert)
-   
-4. KITCHEN STATIONS (Transformer Blocks)
-   - Station 1: Prep (basic patterns)
-   - Station 2: Cooking (complex patterns)
-   - Station 3: Plating (final refinement)
-   - Each station builds on previous work
-   
-5. QUALITY CHECK (Final Layer Norm)
-   - Ensure consistent presentation
-   
-6. SERVING (Output Projection)
-   - Present final dish to customer
-   - Customer chooses from menu (softmax over vocabulary)
+KEY HYPERPARAMETERS (matching Transformer repo naming):
+========================================================
+- d_model: Dimension of embeddings (the "width" of the model)
+- n_heads: Number of attention heads  
+- n_blocks: Number of transformer blocks (the "depth")
+- d_ff: Hidden dimension of feed-forward network
+- d_k, d_v: Dimension per head for keys/values
 
 GPT is a "decoder-only" transformer because:
 - It only uses causal (masked) self-attention
@@ -44,90 +70,166 @@ Let's build the complete GPT model!
 import numpy as np
 
 # =============================================================================
-# STEP 1: Understanding GPT Architecture
+# STEP 1: GPT Configuration Class (matching TransformerConfig pattern)
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 1: GPT Architecture Overview")
+print("STEP 1: GPT Configuration Class")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Amazon Fulfillment Center
-=============================================
+WHY A CONFIG CLASS?
+===================
+Just like the Transformer repo uses TransformerConfig, we use GPTConfig to:
+1. Centralize all hyperparameters in one place
+2. Make it easy to create different model variants
+3. Enable saving/loading configurations
+4. Provide clear documentation of all parameters
 
-GPT processes language like Amazon processes orders:
+REAL-WORLD EXAMPLE: Restaurant Blueprint
+========================================
+Before building a restaurant, you need a blueprint:
+- How many tables? (n_blocks = depth)
+- How many chefs per station? (n_heads = width)
+- How large is the menu? (vocab_size)
+- How detailed are descriptions? (d_model)
 
-+------------------------------------------------------------------+
-|                    GPT MODEL                                      |
-|                                                                   |
-|  CUSTOMER ORDER ARRIVES (Input token IDs)                        |
-|         |                                                         |
-|         v                                                         |
-|  +----------------------------------------------------------+    |
-|  | ORDER TRANSLATOR (Token Embedding)                       |    |
-|  | "Wireless Mouse" -> SKU #12345                           |    |
-|  | Converts IDs to dense vectors                            |    |
-|  +----------------------------------------------------------+    |
-|         |                                                         |
-|         v                                                         |
-|  +----------------------------------------------------------+    |
-|  | WAREHOUSE LOCATION (Position Embedding)                  |    |
-|  | Aisle 1, Shelf 2, Position 3                             |    |
-|  | Adds sequence position info                              |    |
-|  +----------------------------------------------------------+    |
-|         |                                                         |
-|         v                                                         |
-|  +----------------------------------------------------------+    |
-|  | PROCESSING STATION 1 (Transformer Block 1)               |    |
-|  | - Scan item (Attention)                                  |    |
-|  | - Package appropriately (FFN)                            |    |
-|  +----------------------------------------------------------+    |
-|         |                                                         |
-|         v                                                         |
-|  +----------------------------------------------------------+    |
-|  | PROCESSING STATION 2 (Transformer Block 2)               |    |
-|  | - Add shipping labels                                    |    |
-|  | - Quality check                                          |    |
-|  +----------------------------------------------------------+    |
-|         |                                                         |
-|         v                                                         |
-|         ... (N stations total)                                    |
-|         |                                                         |
-|         v                                                         |
-|  +----------------------------------------------------------+    |
-|  | FINAL INSPECTION (Final Layer Norm)                      |    |
-|  | Standardize all packages                                 |    |
-|  +----------------------------------------------------------+    |
-|         |                                                         |
-|         v                                                         |
-|  +----------------------------------------------------------+    |
-|  | SHIPPING LABEL PRINTER (Output Projection)               |    |
-|  | Generates delivery options                               |    |
-|  | (embedding_dim -> vocab_size)                            |    |
-|  +----------------------------------------------------------+    |
-|         |                                                         |
-|         v                                                         |
-|  DELIVERY OPTIONS (Softmax -> Probabilities)                     |
-|  - Option A: 45% chance                                          |
-|  - Option B: 30% chance                                          |
-|  - Option C: 25% chance                                          |
-+-------------------------------------------------------------------+
+The config is this blueprint!
+""")
 
-KEY PARAMETERS (GPT-2 Small):
-- vocab_size: 50,257 (BPE vocabulary)
-- max_seq_len: 1024 tokens
-- embedding_dim: 768
-- num_heads: 12
-- num_blocks: 12
-- ff_dim: 3072 (4 x embedding_dim)
-- Total parameters: ~124 million
 
-GPT-2 Small is like a medium-sized fulfillment center:
-- 50K+ products in catalog (vocabulary)
-- Can handle orders up to 1024 items (sequence length)
-- 12 processing stations (transformer blocks)
-- 12 specialized scanning teams per station (attention heads)
-=============================================================================""")
+class GPTConfig:
+    """
+    Configuration class for GPT model, matching the pattern from Transformer repo.
+    
+    This centralizes all hyperparameters in one place, making it easy to:
+    - Create different model variants
+    - Save/load configurations
+    - Compare model sizes
+    
+    Attributes:
+        vocab_size: Size of vocabulary (e.g., 50,257 for GPT-2)
+        d_model: Dimension of embedding (the "width" of the model)
+        n_heads: Number of attention heads
+        n_blocks: Number of transformer blocks (the "depth" of the model)
+        d_ff: Hidden dimension of feed-forward network
+        dropout: Dropout rate (for future use with training)
+        max_sequence_length: Maximum sequence length the model handles
+    
+    Derived Attributes (computed from above):
+        d_k: Dimension per head for Query and Key (d_model // n_heads)
+        d_v: Dimension per head for Value (d_model // n_heads)
+    """
+    
+    def __init__(
+        self,
+        vocab_size: int = 10000,    # Size of vocabulary
+        d_model: int = 64,          # Dimension of embedding (the "width")
+        n_heads: int = 4,           # Number of attention heads
+        n_blocks: int = 2,          # Number of transformer blocks (the "depth")
+        d_ff: int = 256,            # Hidden dimension of feed-forward network
+        dropout: float = 0.1,       # Dropout rate (for future use)
+        max_sequence_length: int = 100,  # Max sequence length
+    ):
+        """
+        Initialize GPT configuration.
+        
+        Args:
+            vocab_size: Size of vocabulary
+            d_model: Dimension of embedding (the "width" of the model)
+            n_heads: Number of attention heads
+            n_blocks: Number of transformer blocks (the "depth" of the model)
+            d_ff: Hidden dimension of feed-forward network
+            dropout: Dropout rate
+            max_sequence_length: Maximum sequence length the model handles
+        """
+        self.vocab_size = vocab_size
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_blocks = n_blocks
+        self.d_ff = d_ff
+        self.dropout = dropout
+        self.max_sequence_length = max_sequence_length
+        
+        # Sanity checks (matching Transformer repo)
+        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        self.d_k = d_model // n_heads  # Dimension per head (for Q, K)
+        self.d_v = d_model // n_heads  # Dimension per head (for V)
+    
+    def __repr__(self):
+        return (
+            f"GPTConfig(\n"
+            f"  vocab_size={self.vocab_size},\n"
+            f"  d_model={self.d_model},\n"
+            f"  n_heads={self.n_heads},\n"
+            f"  n_blocks={self.n_blocks},\n"
+            f"  d_ff={self.d_ff},\n"
+            f"  d_k={self.d_k},\n"
+            f"  d_v={self.d_v},\n"
+            f"  dropout={self.dropout},\n"
+            f")"
+        )
+
+
+# Show example config
+print("\n" + "-"*70)
+print("Example GPT Configuration (matching Transformer repo style):")
+print("-"*70)
+
+config = GPTConfig(
+    vocab_size=1000,
+    d_model=64,
+    n_heads=4,
+    n_blocks=2,
+    d_ff=256,
+    dropout=0.1,
+    max_sequence_length=100
+)
+print(config)
+
+print("\n" + "-"*70)
+print("Configuration Explained:")
+print("-"*70)
+print(f"""
+vocab_size={config.vocab_size}
+  → Number of unique tokens in vocabulary
+  → GPT-2 uses 50,257 (BPE tokens)
+  → We use 1,000 for demonstration
+
+d_model={config.d_model}
+  → Dimension of embeddings (the "width" of the model)
+  → GPT-2 uses 768 (small) to 16384 (XL)
+  → We use 64 for demonstration
+
+n_heads={config.n_heads}
+  → Number of attention heads (specialists per layer)
+  → GPT-2 uses 12 (small) to 100 (XL)
+  → We use 4 for demonstration
+
+n_blocks={config.n_blocks}
+  → Number of transformer blocks (the "depth")
+  → GPT-2 uses 12 (small) to 96 (XL)
+  → We use 2 for demonstration
+
+d_ff={config.d_ff}
+  → Hidden dimension of feed-forward network
+  → Typically 4x d_model (so 64*4=256) ✓
+  → GPT-2 uses 3072 (4*768)
+
+d_k=d_v={config.d_k}
+  → Dimension per attention head
+  → Computed as d_model // n_heads
+  → Each head focuses on {config.d_k} dimensions
+
+dropout={config.dropout}
+  → Regularization rate (10% dropout)
+  → Helps prevent overfitting
+
+max_sequence_length={config.max_sequence_length}
+  → Maximum tokens the model can handle
+  → GPT-2 supports 1024 tokens
+  → We use 100 for demonstration
+""")
 
 # =============================================================================
 # STEP 2: Helper Functions
@@ -138,41 +240,21 @@ print("STEP 2: Helper Functions")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Restaurant Kitchen Tools
-=============================================
-
-Just like a kitchen needs basic tools (knives, pans, timers),
-GPT needs helper functions:
-
-SOFTMAX = Food Portioning
-- Takes raw ingredients (logits)
-- Divides into proper portions (probabilities)
-- All portions add up to 100% (sum to 1.0)
+SOFTMAX = Probability Converter
+-------------------------------
+Converts raw scores (logits) to probabilities that sum to 1.0
 
 CAUSAL MASK = "No Peeking" Rule
-- Like students taking a test
-- Can only see your own paper (past tokens)
-- Can't see future papers (future tokens)
-- Ensures fair testing (autoregressive generation)
+-------------------------------
+Prevents tokens from seeing future tokens (like taking a test where
+you can only see questions you've already answered)
 """)
 
 def softmax(x):
     """
     Numerically stable softmax.
     
-    REAL-WORLD EXAMPLE: Dividing Pizza Fairly
-    ==========================================
-    
-    Imagine you have 5 friends and 1 pizza:
-    
-    Friend ratings (logits): [2, 5, 3, 8, 1]
-    - Friend 4 rated highest (8) - loves pizza most!
-    - Friend 5 rated lowest (1) - not very hungry
-    
-    Softmax divides the pizza proportionally:
-    - Friend 4 gets largest slice (highest probability)
-    - Friend 5 gets smallest slice
-    - All slices add up to 1 whole pizza (sum = 1.0)
+    Converts logits to probabilities.
     
     Args:
         x: Input array (can be 1D or 2D)
@@ -188,29 +270,13 @@ def create_causal_mask(seq_len):
     """
     Create causal (triangular) mask.
     
-    REAL-WORLD EXAMPLE: Movie Spoiler Protection
-    ============================================
-    
-    Imagine watching a movie with spoiler protection:
-    
-    At minute 1: You can only see minute 1
-    At minute 5: You can see minutes 1-5
-    At minute 10: You can see minutes 1-10
-    
-    You CANNOT see future minutes (spoilers!)
-    
-    Causal mask works the same way:
-    - Token 0: Can only see token 0
-    - Token 5: Can see tokens 0-5
-    - Token 10: Can see tokens 0-10
-    
-    This prevents "spoilers" (cheating by seeing future)!
+    Prevents positions from attending to future positions.
     
     Args:
         seq_len: Sequence length
     
     Returns:
-        Mask matrix where future positions have -1e9 (hidden)
+        Mask matrix where future positions have -1e9 (effectively zero after softmax)
     """
     mask = np.zeros((seq_len, seq_len))
     for i in range(seq_len):
@@ -223,143 +289,88 @@ def create_causal_mask(seq_len):
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 3: Embedding Layers - Converting IDs to Vectors")
+print("STEP 3: Embedding Layers")
 print("="*70)
 
 print("""
-REAL-WORLD EXAMPLE: Library Card Catalog System
-===============================================
+TOKEN EMBEDDING: Convert token IDs to dense vectors
+POSITION EMBEDDING: Add position information
 
-TOKEN EMBEDDING = Book Lookup
------------------------------
+Combined: final_embedding = token_embedding + position_embedding
+""")
 
-Imagine a library with 50,000 books (vocabulary):
-
-PATRON REQUEST: "Harry Potter and the Sorcerer's Stone"
-  |
-LIBRARIAN LOOKS UP in catalog (embedding table)
-  |
-RETURNS: Book location code [0.23, -0.45, 0.89, ...] (768-dim vector)
-  |
-This vector uniquely identifies the book!
-
-Each book has a unique embedding (location code):
-- "Harry Potter" -> [0.23, -0.45, 0.89, ...]
-- "Lord of the Rings" -> [-0.12, 0.67, -0.34, ...]
-- "1984" -> [0.45, 0.23, -0.78, ...]
-
-POSITION EMBEDDING = Reading Order
-----------------------------------
-
-Books on a shelf need ORDER:
-- Book 1: First in series
-- Book 2: Second in series
-- Book 3: Third in series
-
-Position embeddings add this order information:
-- Position 0 -> [0.00, 1.00, 0.00, ...]
-- Position 1 -> [0.50, 0.87, 0.12, ...]
-- Position 2 -> [0.87, 0.50, 0.34, ...]
-
-Combined = Book + Position
-- "Harry Potter" at position 0
-- "Chamber of Secrets" at position 1
-- "Prisoner of Azkaban" at position 2
-
-This tells GPT both WHAT and WHERE!
-=============================================================================""")
 
 class TokenEmbedding:
     """
-    Token embedding layer.
+    Token embedding layer - converts token IDs to dense vectors.
     
-    Think of TokenEmbedding as a menu translator:
+    This is a look-up table:
+      - Input: tensor of token IDs, shape (seq_len,)
+      - Output: tensor of embeddings, shape (seq_len, d_model)
     
-    CUSTOMER ORDER (token ID):
-    "I'll have item #42"
-    
-    TRANSLATOR LOOKS UP (embedding lookup):
-    Item #42 = "Margherita Pizza" = [0.23, -0.45, 0.89, ...]
-    
-    KITCHEN RECEIVES (dense vector):
-    Full description of the dish in chef's language
-    
-    The embedding table is like the menu:
-    - Each item has a unique ID
-    - Each ID maps to a detailed description
-    - Chef knows exactly what to make
+    Example:
+      vocab_size = 1000
+      d_model = 64
+      
+      token_ids = [10, 25, 67]  (3 tokens)
+      embeddings = lookup[token_ids]  → shape (3, 64)
     """
     
-    def __init__(self, vocab_size, embedding_dim):
+    def __init__(self, vocab_size, d_model):
         """
         Args:
-            vocab_size: Number of unique tokens (e.g., 50,257 for GPT-2)
-            embedding_dim: Size of embedding vectors (e.g., 768)
+            vocab_size: Number of unique tokens
+            d_model: Dimension of embedding vectors
         """
         self.vocab_size = vocab_size
-        self.embedding_dim = embedding_dim
+        self.d_model = d_model
         
         np.random.seed(42)
-        # Embedding matrix: each row is a token's embedding
-        self.weights = np.random.randn(vocab_size, embedding_dim) * 0.02
+        self.weights = np.random.randn(vocab_size, d_model) * 0.02
         
-        print(f"TokenEmbedding created")
-        print(f"  Vocabulary: {vocab_size:,} unique tokens")
-        print(f"  Embedding dim: {embedding_dim} features per token")
+        print(f"TokenEmbedding: vocab={vocab_size}, d_model={d_model}")
     
     def forward(self, token_ids):
         """
         Get embeddings for token IDs.
         
-        Input: [10, 25, 67] (token IDs = word numbers)
-        
-        Process:
-        - Look up word #10 -> "The" -> [0.1, -0.2, ...]
-        - Look up word #25 -> "cat" -> [-0.3, 0.4, ...]
-        - Look up word #67 -> "sat" -> [0.5, -0.1, ...]
-        
-        Output: Stack of embeddings for all tokens
-        
         Args:
             token_ids: Array of token IDs, shape (seq_len,)
         
         Returns:
-            Token embeddings, shape (seq_len, embedding_dim)
+            Token embeddings, shape (seq_len, d_model)
         """
         return self.weights[token_ids]
 
+
 class PositionEmbedding:
     """
-    Position embedding layer.
+    Position embedding layer - adds position information.
     
-    Think of PositionEmbedding as seat assignments:
+    Each position in the sequence gets a unique embedding.
     
-    PASSENGER: "I have a ticket" (token)
-    CONDUCTOR: "Your seat is Car 3, Seat 15" (position)
-    
-    The position tells you WHERE in the sequence:
-    - Token "The" at position 0 (beginning of sentence)
-    - Token "cat" at position 1 (subject of sentence)
-    - Token "sat" at position 2 (verb/action)
-    
-    Same word, different position = different meaning!
+    Example:
+      max_seq_len = 100
+      d_model = 64
+      
+      position 0 → [0.01, -0.02, ...] (64-dim)
+      position 1 → [0.02, -0.01, ...] (64-dim)
+      position 2 → [0.03, 0.01, ...] (64-dim)
     """
     
-    def __init__(self, max_seq_len, embedding_dim):
+    def __init__(self, max_seq_len, d_model):
         """
         Args:
-            max_seq_len: Maximum sequence length (e.g., 1024)
-            embedding_dim: Size of embedding vectors
+            max_seq_len: Maximum sequence length
+            d_model: Dimension of embedding vectors
         """
         self.max_seq_len = max_seq_len
-        self.embedding_dim = embedding_dim
+        self.d_model = d_model
         
         np.random.seed(42)
-        self.weights = np.random.randn(max_seq_len, embedding_dim) * 0.02
+        self.weights = np.random.randn(max_seq_len, d_model) * 0.02
         
-        print(f"PositionEmbedding created")
-        print(f"  Max length: {max_seq_len} positions")
-        print(f"  Embedding dim: {embedding_dim} features per position")
+        print(f"PositionEmbedding: max_len={max_seq_len}, d_model={d_model}")
     
     def forward(self, seq_len):
         """
@@ -369,7 +380,7 @@ class PositionEmbedding:
             seq_len: Current sequence length
         
         Returns:
-            Position embeddings, shape (seq_len, embedding_dim)
+            Position embeddings, shape (seq_len, d_model)
         """
         return self.weights[:seq_len]
 
@@ -378,42 +389,18 @@ class PositionEmbedding:
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 4: Core Components - Reusing Building Blocks")
+print("STEP 4: Core Components")
 print("="*70)
 
-print("""
-REAL-WORLD EXAMPLE: Restaurant Equipment
-=========================================
-
-These components were built in previous lessons:
-
-LayerNorm = Food Scale/Measuring Cup
-- Ensures consistent portions
-- Keeps everything standardized
-- Prevents extreme values
-
-FeedForward = Food Processor
-- Takes ingredients in
-- Chops, mixes, transforms
-- Outputs processed food
-
-MultiHeadAttention = Team of Food Critics
-- Critic 1: Tastes seasoning
-- Critic 2: Evaluates texture
-- Critic 3: Analyzes presentation
-- Combined: Complete evaluation
-
-All these tools work together in the kitchen!
-""")
 
 class LayerNorm:
-    """Layer Normalization."""
+    """Layer Normalization - stabilizes training."""
     
-    def __init__(self, embedding_dim, eps=1e-5):
-        self.embedding_dim = embedding_dim
+    def __init__(self, d_model, eps=1e-5):
+        self.d_model = d_model
         self.eps = eps
-        self.gamma = np.ones(embedding_dim)
-        self.beta = np.zeros(embedding_dim)
+        self.gamma = np.ones(d_model)
+        self.beta = np.zeros(d_model)
     
     def forward(self, x):
         mean = np.mean(x, axis=-1, keepdims=True)
@@ -421,64 +408,83 @@ class LayerNorm:
         x_norm = (x - mean) / np.sqrt(var + self.eps)
         return self.gamma * x_norm + self.beta
 
+
 class FeedForward:
-    """Feed-Forward Network."""
+    """Feed-Forward Network - transforms representations."""
     
-    def __init__(self, embedding_dim, ff_dim):
+    def __init__(self, d_model, d_ff):
         np.random.seed(42)
-        self.W1 = np.random.randn(embedding_dim, ff_dim) * np.sqrt(2.0 / embedding_dim)
-        self.b1 = np.zeros(ff_dim)
-        self.W2 = np.random.randn(ff_dim, embedding_dim) * np.sqrt(2.0 / ff_dim)
-        self.b2 = np.zeros(embedding_dim)
+        self.W1 = np.random.randn(d_model, d_ff) * np.sqrt(2.0 / d_model)
+        self.b1 = np.zeros(d_ff)
+        self.W2 = np.random.randn(d_ff, d_model) * np.sqrt(2.0 / d_ff)
+        self.b2 = np.zeros(d_model)
     
     def forward(self, x):
         hidden = np.dot(x, self.W1) + self.b1
         hidden = np.maximum(0, hidden)  # ReLU
         return np.dot(hidden, self.W2) + self.b2
 
+
 class MultiHeadAttention:
-    """Multi-Head Self-Attention."""
+    """Multi-Head Self-Attention - the core of transformer."""
     
-    def __init__(self, embedding_dim, num_heads):
-        self.embedding_dim = embedding_dim
-        self.num_heads = num_heads
-        self.head_dim = embedding_dim // num_heads
+    def __init__(self, d_model, n_heads):
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads  # d_k = d_v
         
         np.random.seed(42)
-        self.W_q = np.random.randn(embedding_dim, embedding_dim) * 0.1
-        self.W_k = np.random.randn(embedding_dim, embedding_dim) * 0.1
-        self.W_v = np.random.randn(embedding_dim, embedding_dim) * 0.1
-        self.W_o = np.random.randn(embedding_dim, embedding_dim) * 0.1
+        self.W_q = np.random.randn(d_model, d_model) * 0.1
+        self.W_k = np.random.randn(d_model, d_model) * 0.1
+        self.W_v = np.random.randn(d_model, d_model) * 0.1
+        self.W_o = np.random.randn(d_model, d_model) * 0.1
     
     def _split_heads(self, x):
+        """Split into heads for parallel attention."""
         seq_len = x.shape[0]
-        x = x.reshape(seq_len, self.num_heads, self.head_dim)
+        x = x.reshape(seq_len, self.n_heads, self.head_dim)
         return x.transpose(1, 0, 2)
     
     def _combine_heads(self, x):
+        """Combine heads back to d_model."""
         x = x.transpose(1, 0, 2)
         seq_len = x.shape[0]
-        return x.reshape(seq_len, self.embedding_dim)
+        return x.reshape(seq_len, self.d_model)
     
     def forward(self, embeddings, use_causal_mask=True):
+        """
+        Forward pass for multi-head attention.
+        
+        Args:
+            embeddings: Input embeddings, shape (seq_len, d_model)
+            use_causal_mask: Whether to apply causal mask
+        
+        Returns:
+            Output embeddings, shape (seq_len, d_model)
+        """
         seq_len = embeddings.shape[0]
         
+        # Project to Q, K, V
         Q = np.dot(embeddings, self.W_q)
         K = np.dot(embeddings, self.W_k)
         V = np.dot(embeddings, self.W_v)
         
+        # Split into heads
         Q_heads = self._split_heads(Q)
         K_heads = self._split_heads(K)
         V_heads = self._split_heads(V)
         
+        # Create mask if needed
         mask = create_causal_mask(seq_len) if use_causal_mask else None
         
+        # Process each head
         head_outputs = []
-        for head_idx in range(self.num_heads):
+        for head_idx in range(self.n_heads):
             Q_head = Q_heads[head_idx]
             K_head = K_heads[head_idx]
             V_head = V_heads[head_idx]
             
+            # Attention scores
             scores = np.dot(Q_head, K_head.T) / np.sqrt(self.head_dim)
             if mask is not None:
                 scores = scores + mask
@@ -486,358 +492,161 @@ class MultiHeadAttention:
             output = np.dot(weights, V_head)
             head_outputs.append(output)
         
+        # Combine heads
         combined = np.stack(head_outputs, axis=0)
         combined = self._combine_heads(combined)
         return np.dot(combined, self.W_o)
 
-# =============================================================================
-# STEP 5: Transformer Block
-# =============================================================================
-
-print("\n" + "="*70)
-print("STEP 5: Transformer Block - The Processing Unit")
-print("="*70)
-
-print("""
-REAL-WORLD EXAMPLE: Sushi Assembly Line Station
-===============================================
-
-Each transformer block is like a sushi chef station:
-
-INPUT: Rice and fish arrive (embeddings from previous layer)
-       |
-+---------------------------------------------+
-|  STATION 1: PREPARATION (LayerNorm)         |
-|  - Measure rice precisely (normalize)       |
-|  - Ensure consistent portions               |
-|         |                                   |
-|  STATION 2: ASSEMBLY (Attention)            |
-|  - Chef examines ingredients                |
-|  - Understands relationships                |
-|  - "Fish goes ON rice, not under"           |
-|         |                                   |
-|  RESIDUAL: Add original ingredients back    |
-|  - Don't lose the original flavor!          |
-|         |                                   |
-|  STATION 3: PREPARATION (LayerNorm 2)       |
-|  - Final measurement check                  |
-|         |                                   |
-|  STATION 4: SHAPING (FeedForward)           |
-|  - Form into proper sushi shape             |
-|  - Apply transformation                     |
-|         |                                   |
-|  RESIDUAL: Add previous stage back          |
-|  - Preserve accumulated flavor              |
-+---------------------------------------------+
-       |
-OUTPUT: Finished sushi (enhanced embeddings)
-        Same format as input, but transformed!
-
-Multiple blocks = Multiple chef stations in sequence!
-Each station refines the sushi further!
-=============================================================================""")
 
 class TransformerBlock:
     """
     Complete Transformer Block.
     
-    Think of TransformerBlock as a document reviewer:
-    
-    INPUT DRAFT (x): Original document
-    
-    REVIEW CYCLE 1 (Attention):
-    - Read entire document (self-attention)
-    - Find connections between sections
-    - "Section 3 references Section 1"
-    - Add review notes (residual)
-    
-    REVIEW CYCLE 2 (FFN):
-    - Process each paragraph independently
-    - Improve wording and clarity
-    - Add final polish
-    - Add edits to document (residual)
-    
-    OUTPUT: Enhanced document (same format, better content!)
+    Architecture:
+        x → LayerNorm → MultiHeadAttention → x + attn_out
+          → LayerNorm → FeedForward → x + ffn_out
     """
     
-    def __init__(self, embedding_dim, num_heads, ff_dim):
-        self.ln1 = LayerNorm(embedding_dim)
-        self.ln2 = LayerNorm(embedding_dim)
-        self.attention = MultiHeadAttention(embedding_dim, num_heads)
-        self.ffn = FeedForward(embedding_dim, ff_dim)
+    def __init__(self, d_model, n_heads, d_ff):
+        self.ln1 = LayerNorm(d_model)
+        self.ln2 = LayerNorm(d_model)
+        self.attention = MultiHeadAttention(d_model, n_heads)
+        self.ffn = FeedForward(d_model, d_ff)
     
     def forward(self, x):
-        # Attention sub-layer (Pre-LayerNorm architecture)
+        # Attention sub-layer (Pre-LayerNorm)
         ln1_out = self.ln1.forward(x)
         attn_out = self.attention.forward(ln1_out)
-        x = x + attn_out  # Residual connection
+        x = x + attn_out  # Residual
         
-        # FFN sub-layer (Pre-LayerNorm architecture)
+        # FFN sub-layer (Pre-LayerNorm)
         ln2_out = self.ln2.forward(x)
         ffn_out = self.ffn.forward(ln2_out)
-        x = x + ffn_out  # Residual connection
+        x = x + ffn_out  # Residual
         
         return x
 
 # =============================================================================
-# STEP 6: Complete GPT Model
+# STEP 5: Complete GPT Model
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 6: Complete GPT Model - The Full Architecture")
+print("STEP 5: Complete GPT Model")
 print("="*70)
 
-print("""
-REAL-WORLD EXAMPLE: Complete Ice Cream Shop
-===========================================
-
-GPT is like an ice cream shop that predicts your next flavor:
-
-+------------------------------------------------------------+
-|                    GPT ICE CREAM SHOP                       |
-|                                                             |
-|  CUSTOMER ORDER (Input token IDs)                          |
-|  "I want: Vanilla -> Chocolate -> ?"                       |
-|         |                                                   |
-|  +--------------------------------------------------------+ |
-|  | FLAVOR ENCODER (Token Embedding)                       | |
-|  | Vanilla -> [0.2, -0.5, 0.8, ...]                       | |
-|  | Chocolate -> [-0.3, 0.7, -0.2, ...]                    | |
-|  +--------------------------------------------------------+ |
-|         |                                                   |
-|  +--------------------------------------------------------+ |
-|  | ORDER SEQUENCE (Position Embedding)                    | |
-|  | First flavor + position 0                              | |
-|  | Second flavor + position 1                             | |
-|  +--------------------------------------------------------+ |
-|         |                                                   |
-|  +--------------------------------------------------------+ |
-|  | PROCESSING STATION 1 (Transformer Block 1)             | |
-|  | "Customer started with vanilla..."                     | |
-|  | Basic pattern recognition                              | |
-|  +--------------------------------------------------------+ |
-|         |                                                   |
-|  +--------------------------------------------------------+ |
-|  | PROCESSING STATION 2 (Transformer Block 2)             | |
-|  | "...then chocolate, likely wants sweet!"               | |
-|  | Deeper pattern understanding                           | |
-|  +--------------------------------------------------------+ |
-|         |                                                   |
-|         ... (more stations for deeper understanding)       |
-|         |                                                   |
-|  +--------------------------------------------------------+ |
-|  | FINAL QUALITY CHECK (Final LayerNorm)                  | |
-|  | Ensure consistent recommendations                      | |
-|  +--------------------------------------------------------+ |
-|         |                                                   |
-|  +--------------------------------------------------------+ |
-|  | RECOMMENDATION GENERATOR (Output Projection)           | |
-|  | Maps understanding to flavor options                   | |
-|  +--------------------------------------------------------+ |
-|         |                                                   |
-|  FLAVOR PROBABILITIES (Softmax)                            |
-|  - Strawberry: 35% <- Most likely!                        |
-|  - Cookies & Cream: 25%                                   |
-|  - Mint Chip: 20%                                         |
-|  - Vanilla: 10%                                           |
-|  - ... (50,000+ flavors total)                            |
-|         |                                                   |
-|  SHOPKEEPER: "I recommend Strawberry!"                    |
-+------------------------------------------------------------+
-
-KEY INSIGHT: GPT doesn't "know" the next word.
-It calculates PROBABILITIES based on patterns!
-=============================================================================""")
 
 class GPT:
     """
     Complete GPT Model - Autoregressive Language Model.
     
-    Think of it as running a restaurant:
+    Architecture:
+        1. Token Embedding + Position Embedding → Input representation
+        2. Stacked Transformer Blocks → Contextual understanding
+        3. Layer Normalization → Final normalization
+        4. Output Projection → Probability distribution over vocabulary
     
-    1. HOST (Input Processing)
-       - Greets customers (receives token IDs)
-       - Seats them properly (embeddings)
-    
-    2. WAITER (Information Flow)
-       - Takes order to kitchen (forward pass)
-       - Brings food back (output logits)
-    
-    3. KITCHEN (Transformer Blocks)
-       - Prep cook (Block 1): Basic preparation
-       - Line cook (Block 2): Main cooking
-       - Sous chef (Block 3): Refinement
-       - Executive chef (Block N): Final touches
-    
-    4. EXPEDITOR (Output Projection)
-       - Plates the food (projects to vocab)
-       - Presents to customer (softmax)
-    
-    5. CUSTOMER (Next Token Selection)
-       - Chooses from options (samples)
-       - "I'll have the strawberry!"
-    
-    The cycle repeats for each new token!
+    This is a decoder-only transformer (like GPT-2/3).
     """
     
-    def __init__(self, vocab_size, max_seq_len, embedding_dim, 
-                 num_heads, num_blocks, ff_dim):
+    def __init__(self, config=None, **kwargs):
         """
         Initialize GPT model.
         
-        Setting up a restaurant requires:
-        
-        vocab_size = Menu size
-          - GPT-2: 50,257 items (like a massive food court!)
-          - Our demo: 1,000 items (small cafe)
-        
-        max_seq_len = Maximum order complexity
-          - How many courses can be ordered
-          - GPT-2: 1024 (banquet-sized!)
-        
-        embedding_dim = Chef's vocabulary richness
-          - How detailed flavor descriptions are
-          - GPT-2: 768 dimensions (sommelier-level!)
-        
-        num_heads = Number of specialist chefs
-          - Each handles different aspects
-          - GPT-2: 12 specialists
-        
-        num_blocks = Number of kitchen stations
-          - More stations = more refined dishes
-          - GPT-2: 12 stations (assembly line!)
-        
-        ff_dim = Processing capacity
-          - How much transformation per station
-          - GPT-2: 3072 (4x embedding = plenty of room!)
-        
         Args:
-            vocab_size: Size of vocabulary (e.g., 50257 for GPT-2)
-            max_seq_len: Maximum sequence length (e.g., 1024)
-            embedding_dim: Dimension of embeddings (e.g., 768)
-            num_heads: Number of attention heads (e.g., 12)
-            num_blocks: Number of transformer blocks (e.g., 12)
-            ff_dim: Feed-forward hidden dimension (e.g., 3072)
+            config: Optional GPTConfig object
+            **kwargs: Individual hyperparameters (if config not provided)
         """
-        self.vocab_size = vocab_size
-        self.max_seq_len = max_seq_len
-        self.embedding_dim = embedding_dim
+        # Use config if provided, otherwise create from kwargs
+        if config is not None:
+            self.config = config
+        else:
+            self.config = GPTConfig(**kwargs)
         
-        print("\n" + "="*50)
-        print("GPT Language Restaurant Opening!")
-        print("="*50)
-        print(f"Restaurant Configuration:")
-        print(f"  Menu size (vocab): {vocab_size:,} items")
-        print(f"  Max courses (seq_len): {max_seq_len}")
-        print(f"  Chef vocabulary (emb_dim): {embedding_dim}")
-        print(f"  Specialist chefs (heads): {num_heads}")
-        print(f"  Kitchen stations (blocks): {num_blocks}")
-        print(f"  Processing capacity (ff_dim): {ff_dim}")
-        print("="*50)
+        # Extract config values
+        vocab_size = self.config.vocab_size
+        max_seq_len = self.config.max_sequence_length
+        d_model = self.config.d_model
+        n_heads = self.config.n_heads
+        n_blocks = self.config.n_blocks
+        d_ff = self.config.d_ff
         
-        # Embedding layers (Host stand)
-        print("\nSetting up host stand...")
-        self.token_embedding = TokenEmbedding(vocab_size, embedding_dim)
-        self.position_embedding = PositionEmbedding(max_seq_len, embedding_dim)
+        print(f"\n{'='*50}")
+        print(f"GPT Model Configuration")
+        print(f"{'='*50}")
+        print(f"  vocab_size={vocab_size}")
+        print(f"  d_model={d_model}")
+        print(f"  n_heads={n_heads}")
+        print(f"  n_blocks={n_blocks}")
+        print(f"  d_ff={d_ff}")
+        print(f"  d_k=d_v={self.config.d_k}")
+        print(f"  max_seq_len={max_seq_len}")
+        print(f"{'='*50}")
         
-        # Transformer blocks (Kitchen stations)
-        print("\nSetting up kitchen stations...")
+        # Embedding layers
+        self.token_embedding = TokenEmbedding(vocab_size, d_model)
+        self.position_embedding = PositionEmbedding(max_seq_len, d_model)
+        
+        # Transformer blocks
         self.blocks = []
-        for i in range(num_blocks):
-            print(f"  Station {i+1}/{num_blocks}: Opening...")
-            block = TransformerBlock(embedding_dim, num_heads, ff_dim)
+        for i in range(n_blocks):
+            block = TransformerBlock(d_model, n_heads, d_ff)
             self.blocks.append(block)
+            print(f"  Block {i+1}/{n_blocks} created")
         
-        # Final layer norm (Quality check)
-        print("\nSetting up quality control...")
-        self.ln_final = LayerNorm(embedding_dim)
+        # Final layer norm
+        self.ln_final = LayerNorm(d_model)
         
-        # Output projection (Menu printer)
-        print("Setting up menu printer...")
+        # Output projection
         np.random.seed(42)
-        self.W_out = np.random.randn(embedding_dim, vocab_size) * 0.1
+        self.W_out = np.random.randn(d_model, vocab_size) * 0.1
         
-        print("="*50)
-        print("Restaurant is now open for business!")
-        print("="*50)
-        
-        # Calculate approximate parameter count
-        self._print_parameter_count(num_blocks)
+        # Print parameter count
+        self._print_parameter_count(n_blocks)
     
-    def _print_parameter_count(self, num_blocks):
+    def _print_parameter_count(self, n_blocks):
         """Print approximate parameter count."""
-        emb_params = self.vocab_size * self.embedding_dim
-        pos_params = self.max_seq_len * self.embedding_dim
+        emb_params = self.config.vocab_size * self.config.d_model
+        pos_params = self.config.max_sequence_length * self.config.d_model
         
-        # Per block: attention (4 * d^2) + FFN (2 * d * 4d) + layer norms
-        block_params = (4 * self.embedding_dim**2 +
-                       8 * self.embedding_dim**2 +
-                       4 * self.embedding_dim)
-        total_block_params = num_blocks * block_params
-        
-        output_params = self.embedding_dim * self.vocab_size
+        # Per block params
+        block_params = (4 * self.config.d_model**2 +  # Attention
+                       8 * self.config.d_model**2 +   # FFN
+                       4 * self.config.d_model)       # LayerNorms
+        total_block_params = n_blocks * block_params
+        output_params = self.config.d_model * self.config.vocab_size
         
         total = emb_params + pos_params + total_block_params + output_params
-        print(f"\nEstimated investment (parameters): {total:,} ({total/1e6:.1f}M)")
+        print(f"\n  Total parameters: {total:,} ({total/1e6:.2f}M)")
     
     def forward(self, token_ids):
         """
         Forward pass of GPT model.
         
-        INPUT: Customer's order history
-               token_ids = [10, 25, 67] (appetizer, salad, ?)
-        
-        STEP 1: Look up each item (Token Embedding)
-                10 -> "Spring Rolls" -> [0.2, -0.5, ...]
-                25 -> "Caesar Salad" -> [-0.3, 0.7, ...]
-                67 -> "Soup" -> [0.1, 0.4, ...]
-        
-        STEP 2: Add course numbers (Position Embedding)
-                Course 1: Spring Rolls + pos_0
-                Course 2: Caesar Salad + pos_1
-                Course 3: Soup + pos_2
-        
-        STEP 3: Send through kitchen (Transformer Blocks)
-                Station 1: Basic prep
-                Station 2: Main cooking
-                ...
-                Station N: Final touches
-        
-        STEP 4: Quality check (Final LayerNorm)
-                Ensure consistent presentation
-        
-        STEP 5: Print recommendations (Output Projection)
-                Generate scores for all menu items
-        
-        OUTPUT: Recommendation scores (logits)
-                "Based on your order, we recommend..."
-        
         Args:
             token_ids: Input token IDs, shape (seq_len,)
         
         Returns:
-            logits: Output logits for next token prediction, 
-                    shape (seq_len, vocab_size)
+            logits: Output logits, shape (seq_len, vocab_size)
         """
         seq_len = len(token_ids)
         
-        # Step 1: Token embeddings
+        # Token embeddings
         token_embs = self.token_embedding.forward(token_ids)
         
-        # Step 2: Position embeddings
+        # Position embeddings
         pos_embs = self.position_embedding.forward(seq_len)
         
-        # Step 3: Combine (token + position)
+        # Combine
         x = token_embs + pos_embs
         
-        # Step 4: Pass through transformer blocks
+        # Transformer blocks
         for i, block in enumerate(self.blocks):
             x = block.forward(x)
         
-        # Step 5: Final layer norm
+        # Final layer norm
         x = self.ln_final.forward(x)
         
-        # Step 6: Output projection to vocabulary
+        # Output projection
         logits = np.dot(x, self.W_out)
         
         return logits
@@ -846,34 +655,17 @@ class GPT:
         """
         Predict next token probabilities.
         
-        Given recent weather pattern [Sunny, Cloudy, ?]
-        Predict tomorrow's weather:
-        
-        TEMPERATURE SCALING:
-        - Cold forecast (temp=0.1): Very confident
-          "95% chance of Sunny!"
-        
-        - Normal forecast (temp=1.0): Standard
-          "45% Sunny, 35% Cloudy, 20% Rain"
-        
-        - Wild forecast (temp=2.0): Uncertain/random
-          "30% Sunny, 25% Cloudy, 25% Rain, 20% Snow!"
-        
         Args:
             token_ids: Input token IDs, shape (seq_len,)
             temperature: Sampling temperature
-                - Low (<1): Confident/conservative
-                - Normal (=1): Standard
-                - High (>1): Creative/random
         
         Returns:
             probabilities: Next token probabilities, shape (vocab_size,)
         """
-        # Get logits for the last position
         logits = self.forward(token_ids)
         last_logits = logits[-1]
         
-        # Apply temperature scaling
+        # Temperature scaling
         if temperature != 1.0:
             last_logits = last_logits / temperature
         
@@ -883,188 +675,68 @@ class GPT:
         return probs
 
 # =============================================================================
-# STEP 7: Example Usage
+# STEP 6: Example Usage
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 7: Example - Creating and Using GPT")
+print("STEP 6: Example Usage")
 print("="*70)
 
-print("""
-REAL-WORLD SCENARIO: Opening a Mini Language Restaurant
-========================================================
-
-We're opening a small cafe (not a massive food court like GPT-2):
-- Menu: 1,000 items (manageable size)
-- Max order: 128 courses (reasonable meal)
-- Staff: 4 specialist chefs (small but skilled team)
-- Stations: 2 kitchen stops (efficient workflow)
-
-Let's see our restaurant in action!
-""")
-
-# Create a small GPT model for demonstration
-gpt = GPT(
-    vocab_size=1000,      # Small vocab for demo
-    max_seq_len=128,      # Short sequences
-    embedding_dim=64,     # Small embedding
-    num_heads=4,          # Fewer heads
-    num_blocks=2,         # Just 2 blocks
-    ff_dim=256            # Smaller FFN
+# Create GPT model with config
+config = GPTConfig(
+    vocab_size=1000,
+    d_model=64,
+    n_heads=4,
+    n_blocks=2,
+    d_ff=256,
+    max_sequence_length=128
 )
 
+gpt = GPT(config=config)
+
 print("\n" + "-"*70)
-print("Processing a customer order...")
+print("Processing sample input...")
 print("-"*70)
 
-# Simulate input token IDs
 np.random.seed(42)
-input_tokens = np.array([10, 25, 67, 89, 123, 45, 78, 234])
-print(f"\nCustomer order history: {input_tokens}")
-print(f"  -> {len(input_tokens)} courses ordered so far")
+input_tokens = np.array([10, 25, 67, 89, 123])
+print(f"Input tokens: {input_tokens}")
 
 # Forward pass
-print(f"\nSending order through kitchen...")
 logits = gpt.forward(input_tokens)
-print(f"\nKitchen recommendations:")
-print(f"  Output shape: {logits.shape}")
-print(f"  -> Scores for all {logits.shape[1]} menu items at each position!")
+print(f"\nOutput logits shape: {logits.shape}")
 
-# Get next token probabilities
-print(f"\nPredicting next course...")
+# Get predictions
 probs = gpt.predict_next_token(input_tokens)
-print(f"  Probability distribution shape: {probs.shape}")
+print(f"Prediction probabilities shape: {probs.shape}")
 
-# Find most likely next tokens
-top_indices = np.argsort(probs)[-10:][::-1]
-print(f"\nTop 10 recommended next courses:")
-for i, idx in enumerate(top_indices):
-    confidence = "***" if probs[idx] > 0.05 else "**" if probs[idx] > 0.02 else "*"
-    print(f"  {i+1}. Item #{idx}: {probs[idx]*100:.2f}% chance {confidence}")
+# Top predictions
+top_indices = np.argsort(probs)[-5:][::-1]
+print(f"\nTop 5 predictions:")
+for idx in top_indices:
+    print(f"  Token {idx}: {probs[idx]*100:.2f}%")
 
 # =============================================================================
-# SUMMARY: Complete GPT Model
+# SUMMARY
 # =============================================================================
 
 print("\n" + "="*70)
-print("SUMMARY: Complete GPT Architecture")
+print("SUMMARY")
 print("="*70)
-
 print("""
 WHAT WE BUILT:
-==============
-1. Token Embeddings - Convert IDs to vectors
-2. Position Embeddings - Add sequence order
-3. Transformer Blocks - Process and understand
-4. Final LayerNorm - Stabilize output
-5. Output Projection - Map to vocabulary
-6. Softmax - Convert to probabilities
+1. GPTConfig - Centralized configuration (matching Transformer repo)
+2. TokenEmbedding - Token IDs → dense vectors
+3. PositionEmbedding - Position info
+4. TransformerBlock - Attention + FFN + Residuals
+5. GPT - Complete model with forward pass
 
-COMPLETE FLOW:
-==============
+KEY NAMING CONVENTIONS (aligned with Transformer repo):
+- d_model (not embed_dim) - embedding dimension
+- n_heads (not num_heads) - attention heads
+- n_blocks (not num_blocks) - transformer blocks
+- d_ff (not ff_dim) - feed-forward hidden dim
+- d_k, d_v - dimension per head
 
-Input: "The cat sat on the" (token IDs)
-  |
-  v
-Token Embeddings: Look up vectors
-  |
-  v
-Position Embeddings: Add position info
-  |
-  v
-Transformer Block 1: Basic patterns
-  |
-  v
-Transformer Block 2: Deeper patterns
-  |
-  v
-... (more blocks)
-  |
-  v
-Final LayerNorm: Normalize
-  |
-  v
-Output Projection: vocab_size logits
-  |
-  v
-Softmax: probabilities for each word
-  |
-  v
-Sample: "mat" (most likely next word)
-
-HOW THIS CONNECTS TO GPT:
-=========================
-
-GPT-2 Small:
-  - vocab_size = 50,257
-  - embedding_dim = 768
-  - num_heads = 12
-  - num_blocks = 12
-  - ff_dim = 3072
-  - Total params: ~124M
-
-GPT-3 Large:
-  - vocab_size = 50,257
-  - embedding_dim = 12288
-  - num_heads = 96
-  - num_blocks = 96
-  - ff_dim = 49152
-  - Total params: ~175B
-
-SAME ARCHITECTURE, different scale!
-
-NEXT: Training the Model
-========================
-Now we have the complete GPT architecture!
-Next, we learn how to TRAIN it:
-- Loss functions (cross-entropy)
-- Backpropagation (gradient descent)
-- Training loop (iterate over data)
-- Evaluation (perplexity)
-
-Next: 07_training.py
-=============================================================================""")
-
-print("\n" + "="*70)
-print("EXERCISE: Experiment with GPT Architecture")
-print("="*70)
-
-print("""
-Try these experiments:
-
-1. CHANGE VOCABULARY SIZE:
-   gpt = GPT(vocab_size=5000, ...)  # Larger vocab
-   
-   Question: How does this affect parameters?
-   Answer: More vocabulary = more embedding params
-
-2. CHANGE NUMBER OF BLOCKS:
-   gpt = GPT(num_blocks=4, ...)  # Deeper model
-   
-   Question: How does depth affect output?
-   Answer: More blocks = deeper understanding
-
-3. CHANGE EMBEDDING DIMENSION:
-   gpt = GPT(embedding_dim=128, ...)  # Richer embeddings
-   
-   Question: How does this affect capacity?
-   Answer: Larger dim = more expressive power
-
-4. TEMPERATURE SCALING:
-   probs = gpt.predict_next_token(tokens, temperature=0.5)
-   probs = gpt.predict_next_token(tokens, temperature=2.0)
-   
-   Question: How does temperature affect predictions?
-   Answer: Low = confident, High = diverse/random
-
-KEY TAKEAWAY:
-=============
-GPT = Embeddings + Transformer Blocks + Output Projection!
-- Token embeddings convert IDs to vectors
-- Position embeddings add order
-- Transformer blocks process and understand
-- Output projection maps to vocabulary
-- Softmax gives probabilities
-
-This is the COMPLETE autoregressive language model!
-=============================================================================""")
+NEXT: Training the model (Lesson 7)
+""")
