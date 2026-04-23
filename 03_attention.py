@@ -18,17 +18,21 @@ GPT vs Transformer:
   - GPT uses MASKED self-attention (causal - can't see future)
   - Transformer encoder uses full self-attention (can see all positions)
   - GPT is decoder-only (predicts next token)
+
+NOTE: This lesson uses PyTorch to show LEARNABLE parameters (nn.Linear)
 """
 
 import math
-import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 # =============================================================================
 # STEP 1: Scaled Dot-Product Attention
 # =============================================================================
 
-class ScaledDotProductAttention:
+class ScaledDotProductAttention(nn.Module):
     """
     The fundamental attention operation.
 
@@ -66,28 +70,29 @@ class ScaledDotProductAttention:
     """
 
     def __init__(self):
-        pass
+        super().__init__()
+        # No learnable parameters in basic attention
 
     def forward(self, Q, K, V, mask=None):
         """
         Forward pass for scaled dot-product attention.
 
         Args:
-            Q: Query tensor, shape (seq_q, d_k)
-            K: Key tensor, shape (seq_k, d_k)
-            V: Value tensor, shape (seq_k, d_v)
+            Q: Query tensor, shape (batch, seq_q, d_k)
+            K: Key tensor, shape (batch, seq_k, d_k)
+            V: Value tensor, shape (batch, seq_k, d_v)
             mask: Optional mask tensor, shape (seq_q, seq_k)
-                  Where mask[i,j] = -1e9 means "don't attend"
+                  Where mask[i,j] = -inf means "don't attend"
 
         Returns:
-            output: Attention output, shape (seq_q, d_v)
-            attention_weights: Softmax weights, shape (seq_q, seq_k)
+            output: Attention output, shape (batch, seq_q, d_v)
+            attention_weights: Softmax weights, shape (batch, seq_q, seq_k)
         """
         d_k = Q.shape[-1]
 
         # Step 1: Compute raw attention scores
-        # Q: (seq_q, d_k), K^T: (d_k, seq_k) → scores: (seq_q, seq_k)
-        scores = np.dot(Q, K.T) / math.sqrt(d_k)
+        # Q: (B, seq_q, d_k), K: (B, d_k, seq_k) → scores: (B, seq_q, seq_k)
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
 
         # Apply mask if provided (set masked positions to -inf)
         if mask is not None:
@@ -95,11 +100,11 @@ class ScaledDotProductAttention:
 
         # Step 2: Softmax → attention weights
         # Each row sums to 1.0
-        attention_weights = softmax(scores)
+        attention_weights = F.softmax(scores, dim=-1)
 
         # Step 3: Weighted sum of values
-        # weights: (seq_q, seq_k), V: (seq_k, d_v) → output: (seq_q, d_v)
-        output = np.dot(attention_weights, V)
+        # weights: (B, seq_q, seq_k), V: (B, seq_k, d_v) → output: (B, seq_q, d_v)
+        output = torch.matmul(attention_weights, V)
 
         return output, attention_weights
 
@@ -108,7 +113,7 @@ class ScaledDotProductAttention:
 # STEP 2: Multi-Head Attention
 # =============================================================================
 
-class MultiHeadAttention:
+class MultiHeadAttention(nn.Module):
     """
     Multi-Head Attention: Run attention multiple times in parallel.
 
@@ -125,23 +130,25 @@ class MultiHeadAttention:
     THE PROCESS:
     ────────────
     1. Project Q, K, V into lower-dimensional spaces (d_model → n_heads × d_k)
+       using LEARNABLE linear layers (nn.Linear)
     2. Split into multiple heads (each head operates in d_k dimensions)
     3. Apply scaled dot-product attention to EACH head
     4. Concatenate all heads
-    5. Project back to d_model
+    5. Project back to d_model using LEARNABLE linear layer
 
     DIMENSIONS:
     ───────────
-    Input:  (seq_len, d_model)
+    Input:  (batch, seq_len, d_model)
     Where:  d_model = n_heads × d_k
 
-    Step 1: Linear projection → (seq_len, d_model)  [3 copies: Q, K, V]
-    Step 2: Reshape → (seq_len, n_heads, d_k)
-    Step 3: Transpose → (n_heads, seq_len, d_k)
-    Step 4: Attention → (n_heads, seq_len, d_k)
-    Step 5: Transpose → (seq_len, n_heads, d_k)
-    Step 6: Reshape → (seq_len, n_heads × d_k) = (seq_len, d_model)
-    Step 7: Linear project → (seq_len, d_model)
+    LEARNABLE PARAMETERS:
+    ─────────────────────
+    W_q: d_model → d_model  (query projection)
+    W_k: d_model → d_model  (key projection)
+    W_v: d_model → d_model  (value projection)
+    W_o: d_model → d_model  (output projection)
+
+    These are initialized by PyTorch and LEARNED during training!
 
     GPT NOTE:
     ─────────
@@ -151,11 +158,21 @@ class MultiHeadAttention:
 
     def __init__(self, d_model, n_heads):
         """
-        Initialize multi-head attention.
+        Initialize multi-head attention with LEARNABLE parameters.
 
         Args:
             d_model: Dimension of input/output embeddings
             n_heads: Number of attention heads
+
+        LEARNABLE PARAMETERS (automatically initialized by PyTorch):
+        ───────────────────────────────────────────────────────────
+        self.W_q = nn.Linear(d_model, d_model)  # Query projection
+        self.W_k = nn.Linear(d_model, d_model)  # Key projection
+        self.W_v = nn.Linear(d_model, d_model)  # Value projection
+        self.W_o = nn.Linear(d_model, d_model)  # Output projection
+
+        These use Xavier/Glorot initialization by default.
+        They will be UPDATED via backpropagation during training!
 
         WHY d_k = d_model // n_heads?
         ─────────────────────────────
@@ -178,6 +195,7 @@ class MultiHeadAttention:
 
         After attention, we concatenate: [head1, head2, head3, head4] → 4×16 = 64
         """
+        super().__init__()
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
 
         self.d_model = d_model
@@ -185,148 +203,117 @@ class MultiHeadAttention:
         self.d_k = d_model // n_heads  # Dimension per head
         self.d_v = d_model // n_heads  # Same as d_k in standard attention
 
-        # Linear projections for Q, K, V and output
-        np.random.seed(42)
-        self.W_q = np.random.randn(d_model, d_model) * 0.1
-        self.W_k = np.random.randn(d_model, d_model) * 0.1
-        self.W_v = np.random.randn(d_model, d_model) * 0.1
-        self.W_o = np.random.randn(d_model, d_model) * 0.1
+        # LEARNABLE linear projections for Q, K, V and output
+        # These are initialized by PyTorch and updated during training!
+        self.W_q = nn.Linear(d_model, d_model)
+        self.W_k = nn.Linear(d_model, d_model)
+        self.W_v = nn.Linear(d_model, d_model)
+        self.W_o = nn.Linear(d_model, d_model)
 
-        # Scaled dot-product attention module
+        # Scaled dot-product attention module (no learnable params)
         self.attention = ScaledDotProductAttention()
+
+        # Causal mask buffer (registered, not learnable)
+        self.register_buffer('causal_mask', None)
 
     def _split_heads(self, x):
         """
         Split the last dimension into (n_heads, d_k) and transpose.
 
-        Input:  (seq_len, d_model)
-        Output: (n_heads, seq_len, d_k)
+        Input:  (batch, seq_len, d_model)
+        Output: (batch, n_heads, seq_len, d_k)
 
         This allows each head to operate independently.
         """
-        seq_len = x.shape[0]
-        # Reshape: (seq_len, d_model) → (seq_len, n_heads, d_k)
-        x = x.reshape(seq_len, self.n_heads, self.d_k)
-        # Transpose: (seq_len, n_heads, d_k) → (n_heads, seq_len, d_k)
-        return x.transpose(1, 0, 2)
+        batch, seq_len, _ = x.shape
+        # Reshape: (batch, seq_len, d_model) → (batch, seq_len, n_heads, d_k)
+        x = x.view(batch, seq_len, self.n_heads, self.d_k)
+        # Transpose: (batch, seq_len, n_heads, d_k) → (batch, n_heads, seq_len, d_k)
+        return x.transpose(1, 2)
 
     def _combine_heads(self, x):
         """
         Merge the heads back together.
 
-        Input:  (n_heads, seq_len, d_k)
-        Output: (seq_len, d_model)
+        Input:  (batch, n_heads, seq_len, d_k)
+        Output: (batch, seq_len, d_model)
 
         This concatenates all heads and prepares for output projection.
         """
-        # Transpose: (n_heads, seq_len, d_k) → (seq_len, n_heads, d_k)
-        x = x.transpose(1, 0, 2)
-        # Reshape: (seq_len, n_heads, d_k) → (seq_len, n_heads × d_k)
-        seq_len = x.shape[0]
-        return x.reshape(seq_len, self.d_model)
+        batch, _, seq_len, _ = x.shape
+        # Transpose: (batch, n_heads, seq_len, d_k) → (batch, seq_len, n_heads, d_k)
+        x = x.transpose(1, 2)
+        # Reshape: (batch, seq_len, n_heads, d_k) → (batch, seq_len, n_heads × d_k)
+        return x.contiguous().view(batch, seq_len, self.d_model)
 
     def forward(self, x, use_causal_mask=True):
         """
         Forward pass for multi-head attention.
 
         Args:
-            x: Input embeddings, shape (seq_len, d_model)
+            x: Input embeddings, shape (batch, seq_len, d_model)
             use_causal_mask: Whether to apply causal mask (for GPT)
 
         Returns:
-            output: shape (seq_len, d_model)
-            attention_weights: shape (n_heads, seq_len, seq_len)
+            output: shape (batch, seq_len, d_model)
+            attention_weights: shape (batch, n_heads, seq_len, seq_len)
         """
-        seq_len = x.shape[0]
+        batch, seq_len, _ = x.shape
 
-        # Step 1: Linear projections
-        Q = np.dot(x, self.W_q)  # (seq_len, d_model)
-        K = np.dot(x, self.W_k)  # (seq_len, d_model)
-        V = np.dot(x, self.W_v)  # (seq_len, d_model)
+        # Step 1: Linear projections (LEARNABLE!)
+        Q = self.W_q(x)  # (batch, seq_len, d_model)
+        K = self.W_k(x)  # (batch, seq_len, d_model)
+        V = self.W_v(x)  # (batch, seq_len, d_model)
 
         # Step 2: Split into multiple heads
-        Q_heads = self._split_heads(Q)  # (n_heads, seq_len, d_k)
-        K_heads = self._split_heads(K)  # (n_heads, seq_len, d_k)
-        V_heads = self._split_heads(V)  # (n_heads, seq_len, d_k)
+        Q_heads = self._split_heads(Q)  # (batch, n_heads, seq_len, d_k)
+        K_heads = self._split_heads(K)  # (batch, n_heads, seq_len, d_k)
+        V_heads = self._split_heads(V)  # (batch, n_heads, seq_len, d_k)
 
         # Create causal mask if needed
         if use_causal_mask:
-            mask = create_causal_mask(seq_len)
+            # Create or get cached causal mask
+            if self.causal_mask is None or self.causal_mask.shape[-1] < seq_len:
+                self.causal_mask = self._create_causal_mask(seq_len)
+            mask = self.causal_mask[:, :, :seq_len, :seq_len]
         else:
             mask = None
 
-        # Step 3 & 4: Apply attention to each head
-        head_outputs = []
-        attention_weights_list = []
-        for head_idx in range(self.n_heads):
-            Q_head = Q_heads[head_idx]  # (seq_len, d_k)
-            K_head = K_heads[head_idx]  # (seq_len, d_k)
-            V_head = V_heads[head_idx]  # (seq_len, d_k)
+        # Step 3 & 4: Apply attention to all heads in parallel
+        # Q, K, V: (batch, n_heads, seq_len, d_k)
+        output, attention_weights = self.attention.forward(Q_heads, K_heads, V_heads, mask)
+        # output: (batch, n_heads, seq_len, d_k)
 
-            # Scaled dot-product attention
-            output, attn_weights = self.attention.forward(Q_head, K_head, V_head, mask)
-            head_outputs.append(output)
-            attention_weights_list.append(attn_weights)
+        # Step 5: Combine heads
+        combined = self._combine_heads(output)  # (batch, seq_len, d_model)
 
-        # Step 5: Concatenate heads
-        combined = np.stack(head_outputs, axis=0)  # (n_heads, seq_len, d_k)
-        combined = self._combine_heads(combined)   # (seq_len, d_model)
-
-        # Step 6: Output projection
-        output = np.dot(combined, self.W_o)  # (seq_len, d_model)
-
-        # Stack attention weights for visualization
-        attention_weights = np.stack(attention_weights_list, axis=0)
+        # Step 6: Output projection (LEARNABLE!)
+        output = self.W_o(combined)  # (batch, seq_len, d_model)
 
         return output, attention_weights
 
+    def _create_causal_mask(self, seq_len):
+        """
+        Create causal (triangular) mask for autoregressive generation.
 
-# =============================================================================
-# Helper Functions
-# =============================================================================
+        GPT uses this mask to prevent positions from attending to FUTURE positions.
 
-def softmax(x):
-    """
-    Numerically stable softmax.
+        Visual representation for seq_len=4:
+        ```
+        Position 0: [0,  -inf, -inf, -inf]  ← can only see itself
+        Position 1: [0,  0,    -inf, -inf]  ← can see 0 and 1
+        Position 2: [0,  0,    0,    -inf]  ← can see 0, 1, 2
+        Position 3: [0,  0,    0,    0   ]  ← can see all
+        ```
 
-    Converts logits to probabilities that sum to 1.0.
-
-    Args:
-        x: Input array (can be 1D or 2D)
-
-    Returns:
-        Softmax output (probabilities that sum to 1)
-    """
-    x_max = np.max(x, axis=-1, keepdims=True)
-    exp_x = np.exp(x - x_max)
-    return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
-
-
-def create_causal_mask(seq_len):
-    """
-    Create causal (triangular) mask for autoregressive generation.
-
-    GPT uses this mask to prevent positions from attending to FUTURE positions.
-
-    Visual representation for seq_len=4:
-    ```
-    Position 0: [0,  -1e9, -1e9, -1e9]  ← can only see itself
-    Position 1: [0,  0,    -1e9, -1e9]  ← can see 0 and 1
-    Position 2: [0,  0,    0,    -1e9]  ← can see 0, 1, 2
-    Position 3: [0,  0,    0,    0   ]  ← can see all
-    ```
-
-    Args:
-        seq_len: Sequence length
-
-    Returns:
-        Mask matrix where future positions have -1e9
-    """
-    mask = np.zeros((seq_len, seq_len))
-    for i in range(seq_len):
-        for j in range(i + 1, seq_len):
-            mask[i, j] = -1e9
-    return mask
+        Returns:
+            Mask tensor, shape (1, 1, seq_len, seq_len) for broadcasting
+        """
+        # Create upper triangular mask (1s above diagonal, 0s on and below)
+        # Then convert to additive mask: 1 becomes -inf, 0 stays 0
+        mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1)
+        mask = mask * float('-inf')
+        return mask.unsqueeze(0).unsqueeze(0)
 
 
 # =============================================================================
@@ -340,14 +327,15 @@ def demonstrate_scaled_dot_product_attention():
     print("=" * 70)
     print()
 
+    batch_size = 1
     seq_len = 4
     d_k = 8
 
     # Create simple Q, K, V
-    np.random.seed(42)
-    Q = np.random.randn(seq_len, d_k)
-    K = np.random.randn(seq_len, d_k)
-    V = np.random.randn(seq_len, d_k)
+    torch.manual_seed(42)
+    Q = torch.randn(batch_size, seq_len, d_k)
+    K = torch.randn(batch_size, seq_len, d_k)
+    V = torch.randn(batch_size, seq_len, d_k)
 
     print(f"Input shapes:")
     print(f"  Q (queries):  {Q.shape}")
@@ -355,25 +343,12 @@ def demonstrate_scaled_dot_product_attention():
     print(f"  V (values):   {V.shape}")
     print()
 
-    # Step 1: Compute scores
-    scores = np.dot(Q, K.T) / math.sqrt(d_k)
-    print(f"Step 1: Raw attention scores = Q @ K^T / sqrt(d_k)")
-    print(f"  Shape: {scores.shape}")
-    print(f"  Values:\n{scores}")
-    print()
+    attention = ScaledDotProductAttention()
+    output, attention_weights = attention(Q, K, V)
 
-    # Step 2: Softmax
-    attention_weights = softmax(scores)
-    print(f"Step 2: Softmax → attention weights")
-    print(f"  Shape: {attention_weights.shape}")
-    print(f"  Values:\n{attention_weights}")
-    print(f"  Row sums: {attention_weights.sum(axis=-1)}")
-    print()
-
-    # Step 3: Weighted sum
-    output = np.dot(attention_weights, V)
-    print(f"Step 3: Weighted sum = weights @ V")
-    print(f"  Shape: {output.shape}")
+    print(f"Output shapes:")
+    print(f"  output:            {output.shape}")
+    print(f"  attention_weights: {attention_weights.shape}")
     print()
 
     # Interpretation
@@ -384,10 +359,10 @@ def demonstrate_scaled_dot_product_attention():
     print()
     for i, word in enumerate(words):
         print(f"  '{word}' attends to:")
-        weights_i = attention_weights[i]
+        weights_i = attention_weights[0, i]
         for j, (w, wt) in enumerate(zip(words, weights_i)):
-            bar = "█" * int(wt * 40)
-            print(f"    → {w:8s}: {wt:.3f} {bar}")
+            bar = "█" * int(wt.item() * 40)
+            print(f"    → {w:8s}: {wt.item():.3f} {bar}")
     print()
 
 
@@ -404,10 +379,21 @@ def demonstrate_multi_head_attention():
 
     mha = MultiHeadAttention(d_model=d_model, n_heads=n_heads)
 
-    seq_len = 5
+    # Show learnable parameters
+    print(f"LEARNABLE PARAMETERS:")
+    total_params = sum(p.numel() for p in mha.parameters())
+    print(f"  Total: {total_params:,} parameters")
+    print(f"  W_q: {mha.W_q.weight.shape} + {mha.W_q.bias.shape}")
+    print(f"  W_k: {mha.W_k.weight.shape} + {mha.W_k.bias.shape}")
+    print(f"  W_v: {mha.W_v.weight.shape} + {mha.W_v.bias.shape}")
+    print(f"  W_o: {mha.W_o.weight.shape} + {mha.W_o.bias.shape}")
+    print()
 
-    np.random.seed(42)
-    x = np.random.randn(seq_len, d_model)
+    seq_len = 5
+    batch_size = 1
+
+    torch.manual_seed(42)
+    x = torch.randn(batch_size, seq_len, d_model)
 
     print(f"Configuration:")
     print(f"  d_model = {d_model}")
@@ -419,23 +405,23 @@ def demonstrate_multi_head_attention():
     print(f"  x: {x.shape}")
     print()
 
-    output, attention_weights = mha.forward(x, use_causal_mask=True)
+    output, attention_weights = mha(x, use_causal_mask=True)
 
     print(f"Output shapes:")
     print(f"  output:            {output.shape}")
     print(f"  attention_weights: {attention_weights.shape}")
-    print(f"    (n_heads, seq_len, seq_len)")
+    print(f"    (batch, n_heads, seq_len, seq_len)")
     print()
 
     print(f"Attention weights for head 0 (causal - lower triangular):")
-    print(f"  {attention_weights[0]}")
+    print(f"  {attention_weights[0, 0]}")
     print()
 
     print(f"Each head learns DIFFERENT attention patterns:")
     for h in range(n_heads):
-        weights = attention_weights[h]
+        weights = attention_weights[0, h]
         # For each position, show which position gets most attention
-        max_positions = np.argmax(weights, axis=-1)
+        max_positions = torch.argmax(weights, dim=-1)
         print(f"  Head {h}: max attention positions = {max_positions.tolist()}")
     print()
 
@@ -454,9 +440,9 @@ def demonstrate_causal_masking():
     seq_len = 5
 
     # Create causal mask
-    mask = create_causal_mask(seq_len)
+    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
     print(f"Causal mask (lower triangular):")
-    print(f"  0 = visible, -1e9 = masked (future)")
+    print(f"  0 = visible, -inf = masked (future)")
     print(f"  {mask}")
     print()
 
@@ -476,14 +462,15 @@ def demonstrate_causal_masking():
     n_heads = 4
     mha = MultiHeadAttention(d_model=d_model, n_heads=n_heads)
 
-    np.random.seed(42)
-    x = np.random.randn(seq_len, d_model)
+    batch_size = 1
+    torch.manual_seed(42)
+    x = torch.randn(batch_size, seq_len, d_model)
 
-    output, attn = mha.forward(x, use_causal_mask=True)
+    output, attn = mha(x, use_causal_mask=True)
 
     print("With causal mask, attention weights are:")
     for i in range(seq_len):
-        weights = attn[0, i]
+        weights = attn[0, 0, i]
         print(f"  Position {i} ('{words[i]}'): {[f'{w:.3f}' for w in weights]}")
     print()
 
@@ -501,30 +488,31 @@ def demonstrate_attention_visualization():
     seq_len = 6
     d_model = 64
     n_heads = 4
+    batch_size = 1
 
     mha = MultiHeadAttention(d_model=d_model, n_heads=n_heads)
 
     # Create input
-    np.random.seed(42)
-    x = np.random.randn(seq_len, d_model)
+    torch.manual_seed(42)
+    x = torch.randn(batch_size, seq_len, d_model)
 
-    output, attn = mha.forward(x, use_causal_mask=True)
+    output, attn = mha(x, use_causal_mask=False)  # No causal mask for visualization
 
     words = ["[BOS]", "the", "cat", "sat", "on", "mat"]
 
     print(f"Self-attention patterns for: {' '.join(words)}")
-    print(f"(Causal mask applied - can only see past positions)")
+    print(f"(Without causal mask - full attention)")
     print()
 
     for h in range(n_heads):
         print(f"Head {h}:")
         for i in range(seq_len):
-            weights = attn[h, i]
+            weights = attn[0, h, i]
             # Show which positions get most attention
-            max_idx = np.argmax(weights)
+            max_idx = torch.argmax(weights)
             marker = "←" if i == max_idx else "  "
-            bar = "█" * int(weights[max_idx] * 30)
-            print(f"  {marker} {words[i]:8s} → {words[max_idx]:8s} ({weights[max_idx]:.2%}) {bar}")
+            bar = "█" * int(weights[max_idx].item() * 30)
+            print(f"  {marker} {words[i]:8s} → {words[max_idx]:8s} ({weights[max_idx].item():.2%}) {bar}")
         print()
 
 
@@ -562,12 +550,12 @@ def main():
     print("-" * 70)
     print("✓ ScaledDotProductAttention: softmax(Q@K^T/sqrt(d_k)) @ V")
     print("✓ MultiHeadAttention: Multiple attention heads in parallel")
-    print("✓ Each head learns different attention patterns")
+    print("✓ LEARNABLE parameters: W_q, W_k, W_v, W_o (nn.Linear layers)")
     print("✓ Causal mask: Prevents GPT from looking ahead (autoregressive)")
     print()
-    print("Shapes:")
-    print("  Input:  (seq_len, d_model)")
-    print("  Output: (seq_len, d_model)")
+    print("LEARNABLE PARAMETERS:")
+    print("  W_q, W_k, W_v, W_o: nn.Linear(d_model, d_model)")
+    print("  These are initialized by PyTorch and updated via backprop!")
     print()
     print("KEY FORMULAS:")
     print("  scores = Q @ K^T / sqrt(d_k)")

@@ -1,7 +1,6 @@
 """
-=============================================================================
-LESSON 6: Complete GPT Model - Assembling the Full Architecture
-=============================================================================
+GPT from Scratch - Lesson 6: Complete GPT Model
+================================================
 
 Now we assemble all components into the complete GPT model!
 
@@ -64,10 +63,15 @@ GPT is a "decoder-only" transformer because:
 - It predicts the next token (autoregressive)
 - No encoder (unlike original Transformer for translation)
 
+NOTE: This lesson uses PyTorch to show LEARNABLE parameters (nn.Linear, nn.Embedding)
+
 Let's build the complete GPT model!
 """
 
-import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 
 # =============================================================================
 # STEP 1: GPT Configuration Class (matching TransformerConfig pattern)
@@ -231,6 +235,7 @@ max_sequence_length={config.max_sequence_length}
   → We use 100 for demonstration
 """)
 
+
 # =============================================================================
 # STEP 2: Helper Functions
 # =============================================================================
@@ -240,86 +245,12 @@ print("STEP 2: Helper Functions")
 print("="*70)
 
 print("""
-SOFTMAX = Probability Converter
--------------------------------
-Converts raw scores (logits) to probabilities that sum to 1.0
-
 CAUSAL MASK = "No Peeking" Rule
 -------------------------------
 Prevents tokens from seeing future tokens (like taking a test where
 you can only see questions you've already answered)
 """)
 
-def softmax(x):
-    """
-    Numerically stable softmax.
-    
-    Converts logits (raw scores) to probabilities that sum to 1.0.
-    
-    WHY SOFTMAX?
-    ============
-    Neural networks output raw scores (logits) that can be any number.
-    But we need probabilities (0 to 1, summing to 1) to make predictions!
-    
-    SOFTMAX FORMULA:
-    ================
-    softmax(x_i) = exp(x_i) / sum(exp(x_j)) for all j
-    
-    EXAMPLE: Restaurant Choice
-    ==========================
-    Imagine choosing a restaurant based on scores:
-    
-    Raw scores (logits):
-      - Italian:  2.0
-      - Chinese:  1.0
-      - Mexican:  0.5
-    
-    Step 1: Subtract max (for numerical stability)
-      - Italian:  2.0 - 2.0 =  0.0
-      - Chinese:  1.0 - 2.0 = -1.0
-      - Mexican:  0.5 - 2.0 = -1.5
-    
-    Step 2: Exponentiate (e^x)
-      - Italian:  e^0.0  = 1.000
-      - Chinese:  e^-1.0 = 0.368
-      - Mexican:  e^-1.5 = 0.223
-    
-    Step 3: Normalize (divide by sum)
-      - Sum = 1.000 + 0.368 + 0.223 = 1.591
-      - Italian:  1.000 / 1.591 = 0.629 (62.9%)
-      - Chinese:  0.368 / 1.591 = 0.231 (23.1%)
-      - Mexican:  0.223 / 1.591 = 0.140 (14.0%)
-    
-    Result: Probabilities sum to 1.0!
-      [0.629, 0.231, 0.140] → sum = 1.0
-    
-    WHY SUBTRACT MAX?
-    =================
-    Large numbers in exp() can overflow:
-      - exp(1000) → infinity (bad!)
-      - exp(-1000) → 0 (ok)
-    
-    By subtracting max, largest value becomes 0:
-      - exp(0) = 1 (safe!)
-      - Ratios stay the same (mathematically equivalent)
-    
-    Args:
-        x: Input array (can be 1D or 2D)
-    
-    Returns:
-        Softmax output (probabilities that sum to 1)
-    """
-    # Subtract max for numerical stability
-    # This prevents exp() from overflowing with large numbers
-    x_max = np.max(x, axis=-1, keepdims=True)
-    
-    # Exponentiate (e^x)
-    # Higher scores get higher exponential values
-    exp_x = np.exp(x - x_max)
-    
-    # Normalize: divide by sum so all values sum to 1.0
-    # This converts to valid probabilities
-    return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
 
 def create_causal_mask(seq_len):
     """
@@ -398,45 +329,43 @@ def create_causal_mask(seq_len):
         seq_len: Sequence length
     
     Returns:
-        Mask matrix where future positions have -1e9 (effectively zero after softmax)
+        Mask tensor where future positions have -inf (effectively zero after softmax)
     """
-    # Create mask matrix of zeros (shape: seq_len x seq_len)
-    # Zeros mean "can attend" (no blocking)
-    mask = np.zeros((seq_len, seq_len))
-    
-    # Fill upper triangle with -1e9 (negative infinity)
+    # Create mask matrix with -inf in upper triangle
     # This blocks attention to future tokens
-    # i = row (current position), j = column (attended position)
-    # When j > i: position j is in the FUTURE of position i
-    for i in range(seq_len):
-        for j in range(i + 1, seq_len):
-            mask[i, j] = -1e9  # Block future tokens
-    
+    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
     return mask
 
+
 # =============================================================================
-# STEP 3: Embedding Layers
+# STEP 3: Embedding Layers with nn.Embedding (LEARNABLE)
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 3: Embedding Layers")
+print("STEP 3: Embedding Layers (with nn.Embedding)")
 print("="*70)
 
 print("""
-TOKEN EMBEDDING: Convert token IDs to dense vectors
-POSITION EMBEDDING: Add position information
+TOKEN EMBEDDING: Convert token IDs to dense vectors (LEARNABLE)
+POSITION EMBEDDING: Add position information (LEARNABLE)
 
 Combined: final_embedding = token_embedding + position_embedding
+
+Both use nn.Embedding - PyTorch's learnable embedding layer!
 """)
 
 
-class TokenEmbedding:
+class TokenEmbedding(nn.Module):
     """
-    Token embedding layer - converts token IDs to dense vectors.
+    Token embedding layer using nn.Embedding (LEARNABLE).
     
-    This is a look-up table:
-      - Input: tensor of token IDs, shape (seq_len,)
-      - Output: tensor of embeddings, shape (seq_len, d_model)
+    This is a learnable look-up table:
+      - Input: tensor of token IDs, shape (batch, seq_len)
+      - Output: tensor of embeddings, shape (batch, seq_len, d_model)
+    
+    LEARNABLE PARAMETERS:
+    - self.embedding.weight: shape (vocab_size, d_model)
+      This is the actual embedding table, learned during training!
     
     Example:
       vocab_size = 1000
@@ -448,63 +377,83 @@ class TokenEmbedding:
     
     def __init__(self, vocab_size, d_model):
         """
+        Initialize token embedding with LEARNABLE parameters.
+        
         Args:
             vocab_size: Number of unique tokens
             d_model: Dimension of embedding vectors
+        
+        LEARNABLE PARAMETERS (automatically initialized by PyTorch):
+        - self.embedding = nn.Embedding(vocab_size, d_model)
+          Weight shape: (vocab_size, d_model)
+          This is the embedding table that gets learned!
         """
-        self.vocab_size = vocab_size
-        self.d_model = d_model
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model)
         
-        np.random.seed(42)
-        self.weights = np.random.randn(vocab_size, d_model) * 0.02
-        
-        print(f"TokenEmbedding: vocab={vocab_size}, d_model={d_model}")
+        print(f"TokenEmbedding created:")
+        print(f"  vocab_size = {vocab_size}, d_model = {d_model}")
+        print(f"  LEARNABLE PARAMETERS:")
+        print(f"    embedding.weight: {self.embedding.weight.shape}")
+        print(f"    Total: {vocab_size * d_model:,} parameters")
     
     def forward(self, token_ids):
         """
         Get embeddings for token IDs.
         
         Args:
-            token_ids: Array of token IDs, shape (seq_len,)
+            token_ids: Tensor of token IDs, shape (batch, seq_len)
         
         Returns:
-            Token embeddings, shape (seq_len, d_model)
+            Token embeddings, shape (batch, seq_len, d_model)
         """
-        return self.weights[token_ids]
+        return self.embedding(token_ids)
 
 
-class PositionEmbedding:
+class PositionEmbedding(nn.Module):
     """
-    Position embedding layer - adds position information.
+    Position embedding layer using nn.Embedding (LEARNABLE).
     
-    Each position in the sequence gets a unique embedding.
+    Each position in the sequence gets a unique learnable embedding.
+    
+    LEARNABLE PARAMETERS:
+    - self.embedding.weight: shape (max_seq_len, d_model)
+      This is the position embedding table, learned during training!
     
     Example:
       max_seq_len = 100
       d_model = 64
       
-      position 0 → [0.01, -0.02, ...] (64-dim)
-      position 1 → [0.02, -0.01, ...] (64-dim)
-      position 2 → [0.03, 0.01, ...] (64-dim)
+      position 0 → [0.01, -0.02, ...] (64-dim, LEARNED)
+      position 1 → [0.02, -0.01, ...] (64-dim, LEARNED)
+      position 2 → [0.03, 0.01, ...] (64-dim, LEARNED)
     """
     
     def __init__(self, max_seq_len, d_model):
         """
+        Initialize position embedding with LEARNABLE parameters.
+        
         Args:
             max_seq_len: Maximum sequence length
             d_model: Dimension of embedding vectors
+        
+        LEARNABLE PARAMETERS (automatically initialized by PyTorch):
+        - self.embedding = nn.Embedding(max_seq_len, d_model)
+          Weight shape: (max_seq_len, d_model)
+          These position vectors are learned during training!
         """
-        self.max_seq_len = max_seq_len
-        self.d_model = d_model
+        super().__init__()
+        self.embedding = nn.Embedding(max_seq_len, d_model)
         
-        np.random.seed(42)
-        self.weights = np.random.randn(max_seq_len, d_model) * 0.02
-        
-        print(f"PositionEmbedding: max_len={max_seq_len}, d_model={d_model}")
+        print(f"PositionEmbedding created:")
+        print(f"  max_seq_len = {max_seq_len}, d_model = {d_model}")
+        print(f"  LEARNABLE PARAMETERS:")
+        print(f"    embedding.weight: {self.embedding.weight.shape}")
+        print(f"    Total: {max_seq_len * d_model:,} parameters")
     
     def forward(self, seq_len):
         """
-        Get position embeddings.
+        Get position embeddings for positions 0 to seq_len-1.
         
         Args:
             seq_len: Current sequence length
@@ -512,180 +461,73 @@ class PositionEmbedding:
         Returns:
             Position embeddings, shape (seq_len, d_model)
         """
-        return self.weights[:seq_len]
+        # Create position indices [0, 1, 2, ..., seq_len-1]
+        positions = torch.arange(seq_len, dtype=torch.long)
+        return self.embedding(positions)
+
 
 # =============================================================================
-# STEP 4: Core Components (from previous lessons)
-# =============================================================================
-
-print("\n" + "="*70)
-print("STEP 4: Core Components")
-print("="*70)
-
-
-class LayerNorm:
-    """Layer Normalization - stabilizes training."""
-    
-    def __init__(self, d_model, eps=1e-5):
-        self.d_model = d_model
-        self.eps = eps
-        self.gamma = np.ones(d_model)
-        self.beta = np.zeros(d_model)
-    
-    def forward(self, x):
-        mean = np.mean(x, axis=-1, keepdims=True)
-        var = np.var(x, axis=-1, keepdims=True)
-        x_norm = (x - mean) / np.sqrt(var + self.eps)
-        return self.gamma * x_norm + self.beta
-
-
-class FeedForward:
-    """Feed-Forward Network - transforms representations."""
-    
-    def __init__(self, d_model, d_ff):
-        np.random.seed(42)
-        self.W1 = np.random.randn(d_model, d_ff) * np.sqrt(2.0 / d_model)
-        self.b1 = np.zeros(d_ff)
-        self.W2 = np.random.randn(d_ff, d_model) * np.sqrt(2.0 / d_ff)
-        self.b2 = np.zeros(d_model)
-    
-    def forward(self, x):
-        hidden = np.dot(x, self.W1) + self.b1
-        hidden = np.maximum(0, hidden)  # ReLU
-        return np.dot(hidden, self.W2) + self.b2
-
-
-class MultiHeadAttention:
-    """Multi-Head Self-Attention - the core of transformer."""
-    
-    def __init__(self, d_model, n_heads):
-        self.d_model = d_model
-        self.n_heads = n_heads
-        self.head_dim = d_model // n_heads  # d_k = d_v
-        
-        np.random.seed(42)
-        self.W_q = np.random.randn(d_model, d_model) * 0.1
-        self.W_k = np.random.randn(d_model, d_model) * 0.1
-        self.W_v = np.random.randn(d_model, d_model) * 0.1
-        self.W_o = np.random.randn(d_model, d_model) * 0.1
-    
-    def _split_heads(self, x):
-        """Split into heads for parallel attention."""
-        seq_len = x.shape[0]
-        x = x.reshape(seq_len, self.n_heads, self.head_dim)
-        return x.transpose(1, 0, 2)
-    
-    def _combine_heads(self, x):
-        """Combine heads back to d_model."""
-        x = x.transpose(1, 0, 2)
-        seq_len = x.shape[0]
-        return x.reshape(seq_len, self.d_model)
-    
-    def forward(self, embeddings, use_causal_mask=True):
-        """
-        Forward pass for multi-head attention.
-        
-        Args:
-            embeddings: Input embeddings, shape (seq_len, d_model)
-            use_causal_mask: Whether to apply causal mask
-        
-        Returns:
-            Output embeddings, shape (seq_len, d_model)
-        """
-        seq_len = embeddings.shape[0]
-        
-        # Project to Q, K, V
-        Q = np.dot(embeddings, self.W_q)
-        K = np.dot(embeddings, self.W_k)
-        V = np.dot(embeddings, self.W_v)
-        
-        # Split into heads
-        Q_heads = self._split_heads(Q)
-        K_heads = self._split_heads(K)
-        V_heads = self._split_heads(V)
-        
-        # Create mask if needed
-        mask = create_causal_mask(seq_len) if use_causal_mask else None
-        
-        # Process each head
-        head_outputs = []
-        for head_idx in range(self.n_heads):
-            Q_head = Q_heads[head_idx]
-            K_head = K_heads[head_idx]
-            V_head = V_heads[head_idx]
-            
-            # Attention scores
-            scores = np.dot(Q_head, K_head.T) / np.sqrt(self.head_dim)
-            if mask is not None:
-                scores = scores + mask
-            weights = softmax(scores)
-            output = np.dot(weights, V_head)
-            head_outputs.append(output)
-        
-        # Combine heads
-        combined = np.stack(head_outputs, axis=0)
-        combined = self._combine_heads(combined)
-        return np.dot(combined, self.W_o)
-
-
-class TransformerBlock:
-    """
-    Complete Transformer Block.
-    
-    Architecture:
-        x → LayerNorm → MultiHeadAttention → x + attn_out
-          → LayerNorm → FeedForward → x + ffn_out
-    """
-    
-    def __init__(self, d_model, n_heads, d_ff):
-        self.ln1 = LayerNorm(d_model)
-        self.ln2 = LayerNorm(d_model)
-        self.attention = MultiHeadAttention(d_model, n_heads)
-        self.ffn = FeedForward(d_model, d_ff)
-    
-    def forward(self, x):
-        # Attention sub-layer (Pre-LayerNorm)
-        ln1_out = self.ln1.forward(x)
-        attn_out = self.attention.forward(ln1_out)
-        x = x + attn_out  # Residual
-        
-        # FFN sub-layer (Pre-LayerNorm)
-        ln2_out = self.ln2.forward(x)
-        ffn_out = self.ffn.forward(ln2_out)
-        x = x + ffn_out  # Residual
-        
-        return x
-
-# =============================================================================
-# STEP 5: Complete GPT Model
+# STEP 4: Complete GPT Model with nn.Module
 # =============================================================================
 
 print("\n" + "="*70)
-print("STEP 5: Complete GPT Model")
+print("STEP 4: Complete GPT Model (with nn.Module)")
 print("="*70)
 
+print("""
+Now we build the complete GPT model using PyTorch's nn.Module!
 
-class GPT:
+All parameters are LEARNABLE via:
+- nn.Embedding for token and position embeddings
+- nn.Linear for attention projections and output
+- nn.LayerNorm for normalization
+""")
+
+
+class GPT(nn.Module):
     """
-    Complete GPT Model - Autoregressive Language Model.
+    Complete GPT Model using PyTorch nn.Module.
+    
+    This is a decoder-only transformer (like GPT-2/3) that predicts next tokens.
     
     Architecture:
-        1. Token Embedding + Position Embedding → Input representation
-        2. Stacked Transformer Blocks → Contextual understanding
-        3. Layer Normalization → Final normalization
-        4. Output Projection → Probability distribution over vocabulary
+        1. Token Embedding (nn.Embedding) + Position Embedding (nn.Embedding)
+        2. Stacked Transformer Blocks (with nn.Linear for attention/FFN)
+        3. Layer Normalization (nn.LayerNorm)
+        4. Output Projection (nn.Linear) → Vocabulary logits
     
-    This is a decoder-only transformer (like GPT-2/3).
+    ALL PARAMETERS ARE LEARNABLE!
+    
+    LEARNABLE PARAMETERS:
+    - Token Embedding: vocab_size × d_model
+    - Position Embedding: max_seq_len × d_model
+    - Per Transformer Block:
+      - Attention: 4 × d_model² (Q, K, V, output projections)
+      - FFN: 2 × d_model × d_ff (two linear layers)
+      - LayerNorm: 2 × d_model (weight, bias) × 2 norms
+    - Output: d_model × vocab_size
     """
     
     def __init__(self, config=None, **kwargs):
         """
-        Initialize GPT model.
+        Initialize GPT model with LEARNABLE parameters.
         
         Args:
             config: Optional GPTConfig object
             **kwargs: Individual hyperparameters (if config not provided)
+        
+        LEARNABLE PARAMETERS (all initialized by PyTorch):
+        - Token Embedding: nn.Embedding(vocab_size, d_model)
+        - Position Embedding: nn.Embedding(max_seq_len, d_model)
+        - Per Transformer Block:
+          - Attention: nn.Linear layers for Q, K, V, output
+          - FFN: nn.Linear(d_model, d_ff), nn.Linear(d_ff, d_model)
+          - LayerNorm: nn.LayerNorm (learnable weight/bias)
+        - Final LayerNorm: nn.LayerNorm(d_model)
+        - Output: nn.Linear(d_model, vocab_size)
         """
+        super().__init__()
+        
         # Use config if provided, otherwise create from kwargs
         if config is not None:
             self.config = config
@@ -703,109 +545,215 @@ class GPT:
         print(f"\n{'='*50}")
         print(f"GPT Model Configuration")
         print(f"{'='*50}")
-        print(f"  vocab_size={vocab_size}")
-        print(f"  d_model={d_model}")
-        print(f"  n_heads={n_heads}")
-        print(f"  n_blocks={n_blocks}")
-        print(f"  d_ff={d_ff}")
-        print(f"  d_k=d_v={self.config.d_k}")
-        print(f"  max_seq_len={max_seq_len}")
+        print(f"  vocab_size = {vocab_size}")
+        print(f"  d_model = {d_model}")
+        print(f"  n_heads = {n_heads}")
+        print(f"  n_blocks = {n_blocks}")
+        print(f"  d_ff = {d_ff}")
+        print(f"  d_k = d_v = {self.config.d_k}")
+        print(f"  max_seq_len = {max_seq_len}")
         print(f"{'='*50}")
         
-        # Embedding layers
+        # LEARNABLE Embedding layers (nn.Embedding)
         self.token_embedding = TokenEmbedding(vocab_size, d_model)
         self.position_embedding = PositionEmbedding(max_seq_len, d_model)
         
-        # Transformer blocks
-        self.blocks = []
-        for i in range(n_blocks):
-            block = TransformerBlock(d_model, n_heads, d_ff)
-            self.blocks.append(block)
+        # LEARNABLE Transformer blocks
+        self.blocks = nn.ModuleList([
+            TransformerBlock(d_model, n_heads, d_ff)
+            for _ in range(n_blocks)
+        ])
+        
+        for i, block in enumerate(self.blocks):
             print(f"  Block {i+1}/{n_blocks} created")
         
-        # Final layer norm
-        self.ln_final = LayerNorm(d_model)
+        # LEARNABLE Final layer norm (nn.LayerNorm)
+        self.ln_final = nn.LayerNorm(d_model)
         
-        # Output projection
-        np.random.seed(42)
-        self.W_out = np.random.randn(d_model, vocab_size) * 0.1
+        # LEARNABLE Output projection (nn.Linear)
+        self.output = nn.Linear(d_model, vocab_size)
         
-        # Print parameter count
-        self._print_parameter_count(n_blocks)
-    
-    def _print_parameter_count(self, n_blocks):
-        """Print approximate parameter count."""
-        emb_params = self.config.vocab_size * self.config.d_model
-        pos_params = self.config.max_sequence_length * self.config.d_model
+        print(f"\n  Final LayerNorm: nn.LayerNorm({d_model})")
+        print(f"  Output projection: nn.Linear({d_model}, {vocab_size})")
         
-        # Per block params
-        block_params = (4 * self.config.d_model**2 +  # Attention
-                       8 * self.config.d_model**2 +   # FFN
-                       4 * self.config.d_model)       # LayerNorms
-        total_block_params = n_blocks * block_params
-        output_params = self.config.d_model * self.config.vocab_size
-        
-        total = emb_params + pos_params + total_block_params + output_params
-        print(f"\n  Total parameters: {total:,} ({total/1e6:.2f}M)")
+        # Print total parameter count
+        total_params = sum(p.numel() for p in self.parameters())
+        print(f"\n  Total LEARNABLE parameters: {total_params:,} ({total_params/1e6:.2f}M)")
+        print(f"{'='*50}")
     
     def forward(self, token_ids):
         """
         Forward pass of GPT model.
         
         Args:
-            token_ids: Input token IDs, shape (seq_len,)
+            token_ids: Input token IDs, shape (batch, seq_len)
         
         Returns:
-            logits: Output logits, shape (seq_len, vocab_size)
+            logits: Output logits, shape (batch, seq_len, vocab_size)
         """
-        seq_len = len(token_ids)
+        batch, seq_len = token_ids.shape
         
-        # Token embeddings
-        token_embs = self.token_embedding.forward(token_ids)
+        # Get token embeddings (LEARNABLE)
+        token_embs = self.token_embedding(token_ids)  # (batch, seq_len, d_model)
         
-        # Position embeddings
-        pos_embs = self.position_embedding.forward(seq_len)
+        # Get position embeddings (LEARNABLE)
+        pos_embs = self.position_embedding(seq_len)  # (seq_len, d_model)
         
-        # Combine
-        x = token_embs + pos_embs
+        # Combine: broadcast position embeddings to batch
+        x = token_embs + pos_embs  # (batch, seq_len, d_model)
         
-        # Transformer blocks
+        # Pass through transformer blocks (LEARNABLE)
         for i, block in enumerate(self.blocks):
-            x = block.forward(x)
+            x = block(x)
         
-        # Final layer norm
-        x = self.ln_final.forward(x)
+        # Final layer norm (LEARNABLE)
+        x = self.ln_final(x)
         
-        # Output projection
-        logits = np.dot(x, self.W_out)
+        # Output projection (LEARNABLE)
+        logits = self.output(x)  # (batch, seq_len, vocab_size)
         
         return logits
     
-    def predict_next_token(self, token_ids, temperature=1.0):
+    @torch.no_grad()
+    def generate(self, token_ids, max_new_tokens, temperature=1.0, top_k=None):
         """
-        Predict next token probabilities.
+        Generate new tokens autoregressively.
         
         Args:
-            token_ids: Input token IDs, shape (seq_len,)
-            temperature: Sampling temperature
+            token_ids: Input token IDs, shape (batch, seq_len)
+            max_new_tokens: Number of tokens to generate
+            temperature: Sampling temperature (higher = more random)
+            top_k: If set, only sample from top k tokens
         
         Returns:
-            probabilities: Next token probabilities, shape (vocab_size,)
+            Generated token IDs, shape (batch, seq_len + max_new_tokens)
         """
-        logits = self.forward(token_ids)
-        last_logits = logits[-1]
+        self.eval()
         
-        # Temperature scaling
-        if temperature != 1.0:
-            last_logits = last_logits / temperature
+        for _ in range(max_new_tokens):
+            # Crop sequence if too long
+            idx_cond = token_ids[:, -self.config.max_sequence_length:]
+            
+            # Forward pass
+            logits = self(idx_cond)
+            
+            # Get last token's logits
+            logits = logits[:, -1, :]  # (batch, vocab_size)
+            
+            # Apply temperature
+            if temperature != 1.0:
+                logits = logits / temperature
+            
+            # Optional: top-k sampling
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = float('-inf')
+            
+            # Sample from softmax distribution
+            probs = F.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+            
+            # Append to sequence
+            token_ids = torch.cat((token_ids, idx_next), dim=1)
         
-        # Convert to probabilities
-        probs = softmax(last_logits)
-        
-        return probs
+        return token_ids
+
 
 # =============================================================================
-# STEP 6: Example Usage
+# STEP 5: Transformer Block (Minimal Version for Standalone Execution)
+# =============================================================================
+
+# Minimal TransformerBlock for standalone execution
+# (In the full project, this imports from lesson 5)
+class TransformerBlock(nn.Module):
+        """Minimal Transformer block for standalone execution."""
+        
+        def __init__(self, d_model, n_heads, d_ff):
+            super().__init__()
+            self.ln1 = nn.LayerNorm(d_model)
+            self.ln2 = nn.LayerNorm(d_model)
+            self.attention = MultiHeadAttention(d_model, n_heads)
+            self.ffn = FeedForwardNetwork(d_model, d_ff)
+        
+        def forward(self, x):
+            x = x + self.attention(self.ln1(x))
+            x = x + self.ffn(self.ln2(x))
+            return x
+
+
+# Minimal MultiHeadAttention for standalone execution
+class MultiHeadAttention(nn.Module):
+    """Minimal MultiHeadAttention for standalone execution."""
+    
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_k = d_model // n_heads
+        
+        self.W_q = nn.Linear(d_model, d_model)
+        self.W_k = nn.Linear(d_model, d_model)
+        self.W_v = nn.Linear(d_model, d_model)
+        self.W_o = nn.Linear(d_model, d_model)
+        
+        self.register_buffer('causal_mask', None)
+    
+    def _split_heads(self, x):
+        batch, seq_len, _ = x.shape
+        x = x.view(batch, seq_len, self.n_heads, self.d_k)
+        return x.transpose(1, 2)
+    
+    def _combine_heads(self, x):
+        batch, _, seq_len, _ = x.shape
+        x = x.transpose(1, 2)
+        return x.contiguous().view(batch, seq_len, self.d_model)
+    
+    def forward(self, x):
+        batch, seq_len, _ = x.shape
+        
+        Q = self.W_q(x)
+        K = self.W_k(x)
+        V = self.W_v(x)
+        
+        Q_heads = self._split_heads(Q)
+        K_heads = self._split_heads(K)
+        V_heads = self._split_heads(V)
+        
+        # Create causal mask
+        if self.causal_mask is None or self.causal_mask.shape[-1] < seq_len:
+            mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
+            self.causal_mask = mask.unsqueeze(0).unsqueeze(0)
+        mask = self.causal_mask[:, :, :seq_len, :seq_len]
+        
+        d_k = Q_heads.shape[-1]
+        scores = torch.matmul(Q_heads, K_heads.transpose(-2, -1)) / (d_k ** 0.5)
+        scores = scores + mask
+        attn = F.softmax(scores, dim=-1)
+        
+        output = torch.matmul(attn, V_heads)
+        output = self._combine_heads(output)
+        output = self.W_o(output)
+        
+        return output
+
+
+class FeedForwardNetwork(nn.Module):
+    """Minimal FeedForwardNetwork for standalone execution."""
+    
+    def __init__(self, d_model, d_ff):
+        super().__init__()
+        self.fc1 = nn.Linear(d_model, d_ff)
+        self.fc2 = nn.Linear(d_ff, d_model)
+    
+    def forward(self, x):
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        return x
+
+
+# =============================================================================
+# STEP 6: Example Usage and Demonstration
 # =============================================================================
 
 print("\n" + "="*70)
@@ -828,40 +776,56 @@ print("\n" + "-"*70)
 print("Processing sample input...")
 print("-"*70)
 
-np.random.seed(42)
-input_tokens = np.array([10, 25, 67, 89, 123])
+# Create sample input
+torch.manual_seed(42)
+batch_size = 1
+seq_len = 5
+input_tokens = torch.randint(0, config.vocab_size, (batch_size, seq_len))
 print(f"Input tokens: {input_tokens}")
+print(f"Input shape: {input_tokens.shape}")
 
 # Forward pass
-logits = gpt.forward(input_tokens)
+logits = gpt(input_tokens)
 print(f"\nOutput logits shape: {logits.shape}")
+print(f"  → (batch={batch_size}, seq_len={seq_len}, vocab_size={config.vocab_size})")
 
-# Get predictions
-probs = gpt.predict_next_token(input_tokens)
-print(f"Prediction probabilities shape: {probs.shape}")
+# Get predictions for last position
+last_logits = logits[:, -1, :]  # (batch, vocab_size)
+probs = F.softmax(last_logits, dim=-1)
 
 # Top predictions
-top_indices = np.argsort(probs)[-5:][::-1]
-print(f"\nTop 5 predictions:")
-for idx in top_indices:
-    print(f"  Token {idx}: {probs[idx]*100:.2f}%")
+top_values, top_indices = torch.topk(probs[0], k=5)
+print(f"\nTop 5 predictions for next token:")
+for idx, (val, token_id) in enumerate(zip(top_values, top_indices)):
+    print(f"  {idx+1}. Token {token_id.item()}: {val.item()*100:.2f}%")
 
 # =============================================================================
 # SUMMARY
 # =============================================================================
 
 print("\n" + "="*70)
-print("SUMMARY")
+print("SUMMARY OF LESSON 6")
 print("="*70)
 print("""
 WHAT WE BUILT:
+==============
 1. GPTConfig - Centralized configuration (matching Transformer repo)
-2. TokenEmbedding - Token IDs → dense vectors
-3. PositionEmbedding - Position info
-4. TransformerBlock - Attention + FFN + Residuals
-5. GPT - Complete model with forward pass
+2. TokenEmbedding - nn.Embedding (LEARNABLE token vectors)
+3. PositionEmbedding - nn.Embedding (LEARNABLE position vectors)
+4. TransformerBlock - From Lesson 5 (with nn.Linear layers)
+5. GPT - Complete model using nn.Module
+
+LEARNABLE PARAMETERS (all via PyTorch):
+=======================================
+- Token Embedding: nn.Embedding(vocab_size, d_model)
+- Position Embedding: nn.Embedding(max_seq_len, d_model)
+- Attention: nn.Linear layers (W_q, W_k, W_v, W_o)
+- FFN: nn.Linear layers (fc1, fc2)
+- LayerNorm: nn.LayerNorm (learnable weight/bias)
+- Output: nn.Linear(d_model, vocab_size)
 
 KEY NAMING CONVENTIONS (aligned with Transformer repo):
+=======================================================
 - d_model (not embed_dim) - embedding dimension
 - n_heads (not num_heads) - attention heads
 - n_blocks (not num_blocks) - transformer blocks
@@ -869,4 +833,5 @@ KEY NAMING CONVENTIONS (aligned with Transformer repo):
 - d_k, d_v - dimension per head
 
 NEXT: Training the model (Lesson 7)
-""")
+Run: python 07_training.py
+=============================================================================""")
