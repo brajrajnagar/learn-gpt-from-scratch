@@ -379,10 +379,15 @@ class Trainer:
     def train(self, text, epochs=10, seq_length=32, print_every=1):
         """
         Train the model on text.
-        
-        NOTE: This is a SIMPLIFIED training loop for education.
-        Real training uses backpropagation with proper gradient computation.
-        This demonstrates the CONCEPT!
+
+        NOTE: This is a DEMONSTRATION-ONLY training loop.
+        It computes the forward pass and loss, but does NOT update weights
+        (no backpropagation). The loss will NOT decrease across epochs.
+
+        WHY? Implementing backprop through attention + embeddings in pure
+        NumPy is extremely complex. This shows the STRUCTURE of a training
+        loop. Lesson 10 (10_real_training.py) does REAL training with PyTorch,
+        where autograd handles backpropagation automatically.
         """
         print("\n" + "="*60)
         print("TRAINING MINI GPT")

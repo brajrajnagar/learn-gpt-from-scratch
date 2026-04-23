@@ -17,7 +17,7 @@ Imagine teaching a student to write stories:
 
 2. RANDOM WRITING (Pure Sampling)
    - Student picks any word randomly
-   - "The cat ___" -> could be "purple" or "flew"
+   - "The cat ___" could be "purple" or "flew"
    - Result: Creative but nonsensical
 
 3. TOP-K WRITING (Top-k Sampling)
@@ -29,6 +29,14 @@ Imagine teaching a student to write stories:
    - Cold (low temp): Very predictable
    - Hot (high temp): Very creative
    - Result: Controls creativity level
+
+MATRIX DIMENSIONS WE'LL COVER:
+==============================
+- Logits:            (vocab_size,) - raw model scores
+- Probs:             (vocab_size,) - probability distribution
+- Temperature:       scalar - applied to logits
+- Top-k indices:     (k,) - selected token indices
+- Top-p indices:     (variable,) - depends on cumulative sum
 
 Let's learn each strategy!
 """
@@ -85,6 +93,7 @@ DISADVANTAGES:
 - Can be boring (no surprises)
 =============================================================================""")
 
+
 def greedy_decode(probs):
     """
     Select the token with highest probability.
@@ -101,13 +110,33 @@ def greedy_decode(probs):
     
     This works well when you're confident!
     
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      probs: (vocab_size,) - probability distribution over vocabulary
+    
+    Output:
+      token_id: scalar - index of highest probability token
+    
+    Example:
+      vocab_size = 1000
+      probs: (1000,) - probabilities for all tokens
+      token_id: scalar - argmax(probs), e.g., 42
+    
+    Operation:
+      Find index i where probs[i] is maximum
+    
     Args:
         probs: Probability distribution over vocabulary
     
     Returns:
         token_id: Index of highest probability token
     """
+    # Find index with maximum probability
+    # probs: (vocab_size,)
+    # Returns: scalar
     return np.argmax(probs)
+
 
 print("\n--- Greedy Decoding Demo ---")
 print("="*50)
@@ -176,7 +205,7 @@ SPIN THE WHEEL:
 - Might get Soup (surprise!)
 
 RANDOM SAMPLING FOR TEXT:
-==========================
+=========================
 
 AT EACH STEP, sample from distribution:
 - "the": 45% chance
@@ -201,6 +230,7 @@ Prompt: "The cat"
 Sampling: "The cat purple elephant flying yesterday..."
 =============================================================================""")
 
+
 def sample_decode(probs):
     """
     Sample from the probability distribution.
@@ -218,6 +248,24 @@ def sample_decode(probs):
     
     This is exactly how sampling works!
     
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      probs: (vocab_size,) - probability distribution (sums to 1)
+    
+    Output:
+      token_id: scalar - sampled token index
+    
+    Example:
+      vocab_size = 1000
+      probs: (1000,) - each value between 0 and 1, sum = 1
+      token_id: scalar - e.g., 127 (sampled based on probs)
+    
+    Operation:
+      1. Compute cumulative sum: cumsum[i] = sum(probs[0:i+1])
+      2. Generate random r in [0, 1)
+      3. Find first i where cumsum[i] > r
+    
     Args:
         probs: Probability distribution (sums to 1)
     
@@ -225,18 +273,23 @@ def sample_decode(probs):
         token_id: Sampled token index
     """
     # Cumulative probabilities
+    # probs: (vocab_size,)
+    # cumulative_probs: (vocab_size,) - monotonically increasing from 0 to 1
     cumulative_probs = np.cumsum(probs)
     
     # Generate random number between 0 and 1
+    # r: scalar in [0, 1)
     r = np.random.random()
     
     # Find first cumulative prob > r
+    # This is equivalent to: which "slice" of the wheel did we land on?
     for i, cum_prob in enumerate(cumulative_probs):
         if cum_prob > r:
             return i
     
     # Fallback (shouldn't happen if probs sum to 1)
     return len(probs) - 1
+
 
 print("\n--- Random Sampling Demo ---")
 print("="*50)
@@ -318,6 +371,7 @@ MATHEMATICALLY:
 - High T: Reduces differences (uncertain)
 =============================================================================""")
 
+
 def apply_temperature(logits, temperature):
     """
     Apply temperature scaling to logits.
@@ -338,6 +392,29 @@ def apply_temperature(logits, temperature):
     - Everything looks similar
     - Less extreme differences
     
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      logits: (vocab_size,) - raw model scores
+      temperature: scalar - >0
+    
+    Output:
+      scaled_logits: (vocab_size,) - same shape as input
+    
+    Example:
+      vocab_size = 1000
+      logits: (1000,) = [3.0, 2.0, 1.0, ...]
+      temperature = 0.5
+      scaled_logits: (1000,) = [6.0, 4.0, 2.0, ...]
+      
+      temperature = 2.0
+      scaled_logits: (1000,) = [1.5, 1.0, 0.5, ...]
+    
+    Effect:
+      - T < 1: Amplifies differences between logits
+      - T > 1: Reduces differences between logits
+      - T = 1: No change
+    
     Args:
         logits: Raw model scores (before softmax)
         temperature: Temperature value
@@ -348,18 +425,55 @@ def apply_temperature(logits, temperature):
     Returns:
         scaled_logits: Temperature-adjusted logits
     """
+    # Element-wise division
+    # logits: (vocab_size,), temperature: scalar
+    # Output: (vocab_size,)
     return logits / temperature
 
+
 def softmax_with_temperature(logits, temperature):
-    """Softmax with temperature scaling."""
+    """
+    Softmax with temperature scaling.
+    
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      logits: (vocab_size,) - raw scores
+      temperature: scalar
+    
+    Output:
+      probs: (vocab_size,) - probabilities summing to 1
+    
+    Steps:
+      1. scaled_logits = logits / temperature  -> (vocab_size,)
+      2. exp_logits = exp(scaled_logits - max) -> (vocab_size,)
+      3. probs = exp_logits / sum(exp_logits)  -> (vocab_size,)
+    """
     scaled_logits = apply_temperature(logits, temperature)
     return softmax(scaled_logits)
 
+
 def softmax(x):
-    """Numerically stable softmax."""
+    """
+    Numerically stable softmax.
+    
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      x: (vocab_size,) or (batch, vocab_size)
+    
+    Output:
+      probs: same shape as input, values in [0,1] summing to 1
+    
+    Steps:
+      1. x_max = max(x, axis=-1) -> scalar or (batch,)
+      2. exp_x = exp(x - x_max)  -> same shape as x
+      3. probs = exp_x / sum(exp_x) -> same shape as x
+    """
     x_max = np.max(x, axis=-1, keepdims=True)
     exp_x = np.exp(x - x_max)
     return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
+
 
 print("\n--- Temperature Scaling Demo ---")
 print("="*50)
@@ -447,6 +561,7 @@ DISADVANTAGES:
 - Might cut off good words just below threshold
 =============================================================================""")
 
+
 def topk_decode(probs, k):
     """
     Sample from top-k tokens.
@@ -462,6 +577,27 @@ def topk_decode(probs, k):
     
     WINNER: Chosen from top 5 only!
     
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      probs: (vocab_size,) - probability distribution
+      k: scalar - number of top tokens to keep
+    
+    Output:
+      token_id: scalar - sampled token from top-k
+    
+    Example:
+      vocab_size = 1000
+      k = 10
+      probs: (1000,) - full distribution
+    
+    Steps:
+      1. top_k_indices = argsort(probs)[-k:] -> (k,)
+      2. top_k_probs = probs[top_k_indices]  -> (k,)
+      3. renorm = top_k_probs / sum(top_k_probs) -> (k,)
+      4. sample from renorm -> scalar index in [0, k)
+      5. map back to original index -> scalar
+    
     Args:
         probs: Probability distribution
         k: Number of top tokens to keep
@@ -469,20 +605,27 @@ def topk_decode(probs, k):
     Returns:
         token_id: Sampled token from top-k
     """
-    # Get indices of top-k tokens
+    # Get indices of top-k tokens (highest probabilities)
+    # probs: (vocab_size,)
+    # top_k_indices: (k,) - indices of k highest probability tokens
     top_k_indices = np.argsort(probs)[-k:]
     
     # Get probabilities of top-k tokens
+    # top_k_probs: (k,)
     top_k_probs = probs[top_k_indices]
     
     # Renormalize (must sum to 1)
+    # top_k_probs: (k,) / scalar -> (k,)
     top_k_probs = top_k_probs / top_k_probs.sum()
     
     # Sample from top-k
+    # chosen_idx: scalar in [0, k)
     chosen_idx = sample_decode(top_k_probs)
     
     # Map back to original index
+    # Returns: scalar (original vocabulary index)
     return top_k_indices[chosen_idx]
+
 
 print("\n--- Top-k Sampling Demo ---")
 print("="*50)
@@ -564,6 +707,7 @@ ADVANTAGE over Top-k:
 - Fewer tokens when confident
 =============================================================================""")
 
+
 def topp_decode(probs, p):
     """
     Sample from top-p (nucleus) tokens.
@@ -583,6 +727,32 @@ def topp_decode(probs, p):
     - Result: Password, Login, Account, Forgot, Billing (93%)
     - Sample from these for training focus!
     
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      probs: (vocab_size,) - probability distribution
+      p: scalar - cumulative probability threshold (0 to 1)
+    
+    Output:
+      token_id: scalar - sampled token from top-p
+    
+    Example:
+      vocab_size = 1000
+      p = 0.9
+      probs: (1000,) - full distribution
+    
+    Steps:
+      1. sorted_indices = argsort(probs)[::-1] -> (vocab_size,)
+      2. sorted_probs = probs[sorted_indices]  -> (vocab_size,)
+      3. cumulative = cumsum(sorted_probs)     -> (vocab_size,)
+      4. cutoff = first index where cumulative > p -> scalar
+      5. top_p_indices = sorted_indices[:cutoff+1] -> (cutoff+1,)
+      6. renorm and sample -> scalar
+    
+    Note: Number of kept tokens varies based on distribution!
+    - Confident model (peaky): Few tokens kept
+    - Uncertain model (flat): Many tokens kept
+    
     Args:
         probs: Probability distribution
         p: Cumulative probability threshold (0 to 1)
@@ -591,26 +761,38 @@ def topp_decode(probs, p):
         token_id: Sampled token from top-p
     """
     # Sort by probability (descending)
+    # probs: (vocab_size,)
+    # sorted_indices: (vocab_size,) - indices from highest to lowest prob
+    # sorted_probs: (vocab_size,) - sorted probabilities
     sorted_indices = np.argsort(probs)[::-1]
     sorted_probs = probs[sorted_indices]
     
     # Compute cumulative probability
+    # cumulative_probs: (vocab_size,) - monotonically increasing
     cumulative_probs = np.cumsum(sorted_probs)
     
     # Find cutoff where cumulative > p
+    # cutoff: scalar - first index where cumsum exceeds p
     cutoff = np.searchsorted(cumulative_probs, p)
     
     # Keep tokens up to cutoff
+    # top_p_indices: (cutoff+1,) - variable length!
+    # top_p_probs: (cutoff+1,)
     top_p_indices = sorted_indices[:cutoff + 1]
     top_p_probs = probs[top_p_indices]
     
     # Renormalize
+    # top_p_probs: (cutoff+1,) / scalar -> (cutoff+1,)
     top_p_probs = top_p_probs / top_p_probs.sum()
     
     # Sample
+    # chosen_idx: scalar in [0, cutoff+1)
     chosen_idx = sample_decode(top_p_probs)
     
+    # Return original index
+    # Returns: scalar
     return top_p_indices[chosen_idx]
+
 
 print("\n--- Top-p Sampling Demo ---")
 print("="*50)
@@ -648,6 +830,7 @@ for p in [0.5, 0.8, 0.95]:
     
     print(f"Kept words: {kept_words}")
     print(f"Coverage: {cumulative[cutoff]*100:.1f}%")
+    print(f"Number of tokens kept: {len(kept_words)}")
     print(f"Renormalized: {renorm}")
     
     # Sample several times
@@ -674,6 +857,7 @@ PROMPT: "Once upon a time"
 We'll use a simulated model to generate continuations.
 """)
 
+
 class TextGenerator:
     """Simple text generator with multiple decoding strategies."""
     
@@ -695,10 +879,20 @@ class TextGenerator:
         Simulate model predictions based on context.
         
         This is a DEMO - real model would use neural network!
+        
+        MATRIX DIMENSIONS:
+        ==================
+        Input:
+          context: list of token IDs
+          seed: scalar
+        
+        Output:
+          probs: (vocab_size,) - probability distribution
         """
         np.random.seed(seed + len(context))
         
         # Create context-dependent probabilities
+        # base_probs: (vocab_size,)
         base_probs = np.random.dirichlet(np.ones(self.vocab_size))
         
         # Add some structure based on context
@@ -707,6 +901,7 @@ class TextGenerator:
             base_probs[last_word_idx] *= 0.5  # Less likely to repeat
         
         # Normalize
+        # probs: (vocab_size,) - sums to 1
         probs = base_probs / base_probs.sum()
         
         return probs
@@ -715,6 +910,21 @@ class TextGenerator:
                  temperature=1.0, top_k=None, top_p=None):
         """
         Generate text with specified strategy.
+        
+        MATRIX DIMENSIONS THROUGH GENERATION:
+        =====================================
+        
+        Input:
+          prompt_tokens: list of token IDs (seq_len,)
+          max_length: scalar - tokens to generate
+        
+        Per Generation Step:
+          logits: (vocab_size,) - simulated model output
+          probs: (vocab_size,) - after softmax
+          next_token: scalar - selected token ID
+        
+        Output:
+          generated_tokens: list of (seq_len + max_length) token IDs
         
         Args:
             prompt_tokens: Starting token IDs
@@ -731,7 +941,9 @@ class TextGenerator:
         
         for _ in range(max_length):
             # Get model predictions
+            # logits: (vocab_size,)
             logits = np.random.randn(self.vocab_size)  # Simulated
+            # probs: (vocab_size,)
             probs = softmax(logits / temperature)
             
             # Apply decoding strategy
@@ -746,9 +958,11 @@ class TextGenerator:
             else:
                 next_token = sample_decode(probs)
             
+            # Append to sequence
             tokens.append(next_token)
         
         return tokens
+
 
 # Create vocabulary for demo
 demo_vocab = 100  # Small vocab for demo
@@ -800,6 +1014,31 @@ WHAT WE LEARNED:
 3. Temperature - Control creativity level
 4. Top-k Sampling - Sample from k best options
 5. Top-p Sampling - Sample until probability threshold
+
+MATRIX DIMENSION SUMMARY:
+=========================
+
+GREEDY DECODE:
+  Input:  probs (vocab_size,)
+  Output: token_id (scalar)
+
+SAMPLE DECODE:
+  Input:  probs (vocab_size,)
+  Output: token_id (scalar)
+
+TEMPERATURE:
+  Input:  logits (vocab_size,), temperature (scalar)
+  Output: scaled_logits (vocab_size,)
+
+TOP-K DECODE:
+  Input:  probs (vocab_size,), k (scalar)
+  Output: token_id (scalar)
+  Internal: top_k_indices (k,), top_k_probs (k,)
+
+TOP-P DECODE:
+  Input:  probs (vocab_size,), p (scalar)
+  Output: token_id (scalar)
+  Internal: top_p_indices (variable,), depends on distribution
 
 STRATEGY COMPARISON:
 ====================

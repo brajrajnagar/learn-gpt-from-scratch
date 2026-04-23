@@ -35,6 +35,24 @@ Imagine training a new chef at a restaurant:
    - Measure quality (perplexity)
 
 Let's learn each component!
+
+MATRIX DIMENSIONS WE'LL COVER:
+==============================
+- Input tokens:      (batch, seq_len)
+- Token embeddings:  (batch, seq_len, d_model)
+- Logits (output):   (batch, vocab_size) or (seq_len, vocab_size)
+- Probs (softmax):   (batch, vocab_size)
+- Loss:              scalar (averaged over batch)
+- Perplexity:        scalar (e^loss)
+
+LEARNABLE PARAMETERS IN TRAINING:
+=================================
+- Token Embedding:   (vocab_size, d_model)
+- Position Embedding: (max_seq_len, d_model)
+- Attention weights: 4 × (d_model, d_model) per block
+- FFN weights: (d_ff, d_model) + (d_model, d_ff) per block
+- LayerNorm: 2 × (d_model,) per norm
+- Output projection: (vocab_size, d_model)
 """
 
 import numpy as np
@@ -76,6 +94,7 @@ EXAMPLE CALCULATIONS:
 GOAL: Minimize cross-entropy = Make confident correct predictions!
 =============================================================================""")
 
+
 def cross_entropy_loss(probs, target):
     """
     Cross-entropy loss for a single prediction.
@@ -96,6 +115,21 @@ def cross_entropy_loss(probs, target):
     - p=0.5 (middle ring): loss = 0.693
     - p=0.1 (outer ring): loss = 2.302
     
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      probs: (vocab_size,) - probability distribution over vocabulary
+      target: scalar - index of correct token
+    
+    Output:
+      loss: scalar - single number measuring error
+    
+    Example:
+      vocab_size = 1000
+      probs: shape (1000,) - probabilities for all tokens
+      target: 42 - correct token index
+      loss: -log(probs[42]) - scalar
+    
     Args:
         probs: Predicted probabilities for all words
         target: Index of correct word
@@ -104,15 +138,19 @@ def cross_entropy_loss(probs, target):
         loss: Cross-entropy loss (lower is better)
     """
     # Get probability of correct word
+    # probs: (vocab_size,), target: scalar
+    # p_correct: scalar
     p_correct = probs[target]
     
     # Avoid log(0) by clipping
     p_correct = np.clip(p_correct, 1e-10, 1.0)
     
     # Cross-entropy: -log(probability of correct word)
+    # loss: scalar
     loss = -np.log(p_correct)
     
     return loss
+
 
 print("\n--- Cross-Entropy Loss Demo ---")
 print("="*50)
@@ -181,6 +219,7 @@ KEY PROPERTIES:
 - Relative differences matter (not absolute)
 =============================================================================""")
 
+
 def softmax(logits):
     """
     Numerically stable softmax.
@@ -200,6 +239,25 @@ def softmax(logits):
     
     Result: Student 3 (score 91) gets 99.8% probability!
     
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      logits: (vocab_size,) - raw scores for each token
+              Can also be (batch, vocab_size) for multiple samples
+    
+    Output:
+      probs: (vocab_size,) - probabilities summing to 1.0
+             Same shape as input
+    
+    Example:
+      vocab_size = 1000
+      logits: shape (1000,) - raw scores
+      probs: shape (1000,) - normalized probabilities
+    
+    For batch:
+      logits: (batch, vocab_size) = (32, 1000)
+      probs: (32, 1000) - each row sums to 1.0
+    
     Args:
         logits: Raw scores (can be any real numbers)
     
@@ -208,17 +266,22 @@ def softmax(logits):
     """
     # Subtract max for numerical stability
     # (prevents overflow in exp)
+    # logits: (vocab_size,) or (batch, vocab_size)
     logits_max = np.max(logits, axis=-1, keepdims=True)
     logits_shifted = logits - logits_max
     
-    # Exponentiate
+    # Exponentiate (element-wise)
+    # shape preserved
     exp_logits = np.exp(logits_shifted)
     
     # Normalize (divide by sum)
+    # exp_logits: (vocab_size,) or (batch, vocab_size)
+    # sum_exp: (1,) or (batch, 1) - broadcast for division
     sum_exp = np.sum(exp_logits, axis=-1, keepdims=True)
     probs = exp_logits / sum_exp
     
     return probs
+
 
 print("\n--- Softmax Demo ---")
 print("="*50)
@@ -274,6 +337,21 @@ This is called "autoregressive" training:
 - Uses its own predictions as input
 - Like reading flashcards sequentially!
 
+MATRIX DIMENSIONS:
+==================
+Input text tokens: (total_tokens,)
+After creating sequences:
+  inputs:  (num_examples, seq_len)
+  targets: (num_examples,)
+
+Example:
+  text_tokens = [0, 1, 2, 3, 4, 5]  # 6 tokens
+  seq_len = 3
+  num_examples = 6 - 3 = 3
+  
+  inputs:  (3, 3) = [[0,1,2], [1,2,3], [2,3,4]]
+  targets: (3,)   = [3, 4, 5]
+
 MINI GPT EXAMPLE:
 Text: "hello world hello"
 Tokens: [0, 1, 0] (where 0="hello", 1="world")
@@ -282,6 +360,7 @@ Training examples:
 - Input: [0]      Target: [1]  ("hello" -> "world")
 - Input: [0, 1]   Target: [0]  ("hello world" -> "hello")
 """)
+
 
 def create_training_sequences(text_tokens, seq_length):
     """
@@ -300,6 +379,26 @@ def create_training_sequences(text_tokens, seq_length):
     - Input: seq_length tokens
     - Target: next token after window
     
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      text_tokens: (total_tokens,) - 1D array of token IDs
+      seq_length: scalar - length of each input sequence
+    
+    Output:
+      inputs: (num_examples, seq_length)
+      targets: (num_examples,)
+      
+      where num_examples = total_tokens - seq_length
+    
+    Example:
+      text_tokens = [0, 1, 2, 3, 4, 5, 6]  # 7 tokens
+      seq_length = 3
+      num_examples = 7 - 3 = 4
+      
+      inputs:  (4, 3) = [[0,1,2], [1,2,3], [2,3,4], [3,4,5]]
+      targets: (4,)   = [3, 4, 5, 6]
+    
     Args:
         text_tokens: List of token IDs
         seq_length: Length of input sequences
@@ -312,17 +411,24 @@ def create_training_sequences(text_tokens, seq_length):
     targets = []
     
     # Slide window over text
+    # num_examples = len(text_tokens) - seq_length
     for i in range(len(text_tokens) - seq_length):
         # Input: tokens from i to i+seq_length
+        # inp: (seq_length,)
         inp = text_tokens[i:i + seq_length]
         
         # Target: token at i+seq_length (next token)
+        # tgt: scalar
         tgt = text_tokens[i + seq_length]
         
         inputs.append(inp)
         targets.append(tgt)
     
+    # Convert to numpy arrays
+    # inputs: (num_examples, seq_length)
+    # targets: (num_examples,)
     return np.array(inputs), np.array(targets)
+
 
 print("\n--- Training Data Demo ---")
 print("="*50)
@@ -342,6 +448,8 @@ inputs, targets = create_training_sequences(text_tokens, seq_length)
 
 print(f"\nTraining sequences (seq_length={seq_length}):")
 print(f"Total examples: {len(inputs)}")
+print(f"inputs shape: {inputs.shape}")  # (num_examples, seq_length)
+print(f"targets shape: {targets.shape}")  # (num_examples,)
 print(f"\nFirst 5 examples:")
 for i in range(min(5, len(inputs))):
     inp_text = ' '.join([token_names[t] for t in inputs[i]])
@@ -395,6 +503,7 @@ BATCH = Subset of data processed at once
 LEARNING RATE = How big are adjustments?
 =============================================================================""")
 
+
 class SimpleTrainer:
     """
     Simple trainer for GPT model.
@@ -444,6 +553,17 @@ class SimpleTrainer:
         NOTE: This is for EDUCATION only!
         Real training uses backpropagation (much faster!)
         
+        MATRIX DIMENSIONS:
+        ==================
+        Input:
+          token_ids: (seq_len,) - input token sequence
+          target: scalar - correct token index
+        
+        Output:
+          gradients: dict containing:
+            - 'loss': scalar - original loss value
+            - 'grad_output': (vocab_size,) - gradient for output layer
+        
         Args:
             token_ids: Input tokens
             target: Target token
@@ -453,8 +573,11 @@ class SimpleTrainer:
             gradients: Approximate gradients for weights
         """
         # Get original loss
+        # logits: (vocab_size,)
         logits = self.model.forward(token_ids)
+        # probs: (vocab_size,)
         probs = softmax(logits)
+        # original_loss: scalar
         original_loss = cross_entropy_loss(probs, target)
         
         # Compute gradient for output weights (simplified)
@@ -466,6 +589,7 @@ class SimpleTrainer:
         
         # The gradient of cross-entropy + softmax is:
         # gradient = predicted_prob - one_hot(target)
+        # grad_output: (vocab_size,)
         grad_output = probs.copy()
         grad_output[target] -= 1  # Subtract 1 for correct class
         
@@ -479,6 +603,19 @@ class SimpleTrainer:
         """
         Single training step on a batch.
         
+        MATRIX DIMENSIONS:
+        ==================
+        Input:
+          inputs: (num_samples, seq_len) - batch of input sequences
+          targets: (num_samples,) - batch of target tokens
+        
+        Processing (per sample):
+          inp: (seq_len,) -> model.forward() -> logits: (vocab_size,)
+          probs: (vocab_size,) -> cross_entropy_loss() -> loss: scalar
+        
+        Output:
+          avg_loss: scalar - mean loss over all samples
+        
         Args:
             inputs: Input token sequences, shape (num_samples, seq_len)
             targets: Target tokens, shape (num_samples,)
@@ -490,20 +627,27 @@ class SimpleTrainer:
         num_samples = len(inputs)
         
         for i in range(num_samples):
+            # inp: (seq_len,)
             inp = inputs[i]
+            # tgt: scalar
             tgt = targets[i]
             
-            # Forward pass - returns logits of shape (vocab_size,)
+            # Forward pass
+            # logits: (vocab_size,)
             logits = self.model.forward(inp)
             
             # logits is already 1D (vocab_size,), no need for logits[-1]
             # The model returns scores for all vocabulary items
+            # probs: (vocab_size,)
             probs = softmax(logits)
             
             # Compute loss
+            # loss: scalar
             loss = cross_entropy_loss(probs, tgt)
             total_loss += loss
         
+        # Average over batch
+        # avg_loss: scalar
         avg_loss = total_loss / num_samples
         return avg_loss
     
@@ -511,11 +655,31 @@ class SimpleTrainer:
         """
         Full training loop.
         
+        MATRIX DIMENSIONS THROUGH TRAINING:
+        ===================================
+        
+        Per Epoch:
+          inputs: (num_samples, seq_len)
+          targets: (num_samples,)
+          
+          For each sample:
+            inp: (seq_len,) -> logits: (vocab_size,) -> loss: scalar
+          
+          avg_loss: scalar (mean over all samples)
+          perplexity: scalar (e^avg_loss)
+        
+        History:
+          loss: list of length epochs
+          perplexity: list of length epochs
+        
         Args:
             inputs: All input sequences
             targets: All target tokens
             epochs: Number of passes through data
             print_every: How often to print progress
+        
+        Returns:
+            history: dict with 'loss' and 'perplexity' lists
         """
         print("\n" + "="*50)
         print("Starting Training...")
@@ -525,9 +689,13 @@ class SimpleTrainer:
         
         for epoch in range(epochs):
             # Training step
+            # inputs: (num_samples, seq_len)
+            # targets: (num_samples,)
+            # avg_loss: scalar
             avg_loss = self.train_step(inputs, targets)
             
             # Compute perplexity
+            # perplexity: scalar
             perplexity = np.exp(avg_loss)
             
             # Record history
@@ -546,6 +714,7 @@ class SimpleTrainer:
         print(f"Final Perplexity: {history['perplexity'][-1]:.2f}")
         
         return history
+
 
 # =============================================================================
 # STEP 5: Understanding Perplexity
@@ -587,11 +756,20 @@ GPT-2 Small achieves perplexity ~15-20 on language tasks
 (very good - like expert test-taker!)
 =============================================================================""")
 
+
 def compute_perplexity(loss):
     """
     Convert loss to perplexity.
     
     Perplexity = e^loss
+    
+    MATRIX DIMENSIONS:
+    ==================
+    Input:
+      loss: scalar - cross-entropy loss value
+    
+    Output:
+      perplexity: scalar - e^loss
     
     Think of it as "effective branching factor":
     - If perplexity = 10, model is as confused as 
@@ -606,6 +784,7 @@ def compute_perplexity(loss):
         perplexity: e^loss
     """
     return np.exp(loss)
+
 
 print("\n--- Perplexity Demo ---")
 print("="*50)
@@ -653,21 +832,61 @@ print("\nCreating mini GPT model...")
 # Reuse the GPT class from Lesson 6 (import would be used in real code)
 # For demo, we'll use a simplified version
 
+
 class MiniGPT:
     """Simplified GPT for training demo."""
     
     def __init__(self, vocab_size, embedding_dim):
+        """
+        Initialize mini GPT model.
+        
+        LEARNABLE PARAMETERS:
+        - W_embed: (vocab_size, embedding_dim) - token embeddings
+        - W_out: (embedding_dim, vocab_size) - output projection
+        
+        Args:
+            vocab_size: Size of vocabulary
+            embedding_dim: Dimension of embeddings
+        """
         np.random.seed(42)
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
         
         # Simple embedding + linear projection
+        # W_embed: (vocab_size, embedding_dim)
         self.W_embed = np.random.randn(vocab_size, embedding_dim) * 0.1
+        # W_out: (embedding_dim, vocab_size)
         self.W_out = np.random.randn(embedding_dim, vocab_size) * 0.1
     
     def forward(self, token_ids):
         """
         Forward pass returning logits for next token prediction.
+        
+        MATRIX DIMENSIONS THROUGH FORWARD PASS:
+        =======================================
+        
+        1. INPUT:
+           token_ids: (seq_len,) - input token sequence
+        
+        2. TOKEN EMBEDDING:
+           Input:  (seq_len,)
+           W_embed: (vocab_size, embedding_dim)
+           x: (seq_len, embedding_dim)
+           
+           Operation: Look up each token in embedding table
+        
+        3. MEAN POOLING:
+           Input:  (seq_len, embedding_dim)
+           x: (embedding_dim,)
+           
+           Operation: Average over sequence dimension
+        
+        4. OUTPUT PROJECTION:
+           Input:  (embedding_dim,)
+           W_out: (embedding_dim, vocab_size)
+           logits: (vocab_size,)
+           
+           Operation: x @ W_out
         
         Args:
             token_ids: Input token IDs, shape (seq_len,)
@@ -677,17 +896,25 @@ class MiniGPT:
                     This is a 1D array of scores for the LAST position
         """
         # Embed tokens
-        x = self.W_embed[token_ids]  # (seq_len, embedding_dim)
+        # token_ids: (seq_len,)
+        # x: (seq_len, embedding_dim)
+        x = self.W_embed[token_ids]
         
         # Simple mean pooling (instead of transformer)
-        x = np.mean(x, axis=0)  # (embedding_dim,)
+        # x: (embedding_dim,)
+        x = np.mean(x, axis=0)
         
         # Project to vocabulary
-        logits = np.dot(x, self.W_out)  # (vocab_size,)
+        # x: (embedding_dim,)
+        # W_out: (embedding_dim, vocab_size)
+        # logits: (vocab_size,)
+        logits = np.dot(x, self.W_out)
         
         return logits
 
+
 # Create model
+# vocab_size=10, embedding_dim=16
 model = MiniGPT(vocab_size=10, embedding_dim=16)
 trainer = SimpleTrainer(model, learning_rate=0.01)
 
@@ -698,6 +925,8 @@ inputs, targets = create_training_sequences(text_tokens, seq_length=2)
 
 print(f"\nTraining on pattern: hello world hello world...")
 print(f"Number of examples: {len(inputs)}")
+print(f"inputs shape: {inputs.shape}")   # (num_examples, seq_length)
+print(f"targets shape: {targets.shape}") # (num_examples,)
 
 # Train
 history = trainer.train(inputs, targets, epochs=20, print_every=5)
@@ -725,6 +954,33 @@ WHAT WE LEARNED:
 3. Training Data - Create input/target pairs
 4. Training Loop - Forward, loss, backward, update
 5. Perplexity - Model confidence metric
+
+MATRIX DIMENSION SUMMARY:
+=========================
+
+INPUT DATA:
+  text_tokens:   (total_tokens,)
+  inputs:        (num_examples, seq_len)
+  targets:       (num_examples,)
+
+FORWARD PASS (per sample):
+  token_ids:     (seq_len,)
+  embeddings:    (seq_len, d_model)
+  pooled:        (d_model,)
+  logits:        (vocab_size,)
+  probs:         (vocab_size,)
+  loss:          scalar
+
+BATCH PROCESSING:
+  inputs:        (batch, seq_len)
+  logits:        (batch, vocab_size)
+  probs:         (batch, vocab_size)
+  losses:        (batch,)
+  avg_loss:      scalar
+
+TRAINING METRICS:
+  loss:          scalar (cross-entropy)
+  perplexity:    scalar (e^loss)
 
 COMPLETE TRAINING FLOW:
 =======================
