@@ -212,7 +212,7 @@ n_heads={config.n_heads}
 
 n_blocks={config.n_blocks}
   → Number of transformer blocks (the "depth")
-  → GPT-2 uses 12 (small) to 96 (XL)
+  → GPT-2 uses 12 (small) to 48 (XL)
   → We use 2 for demonstration
 
 d_ff={config.d_ff}
@@ -333,6 +333,8 @@ def create_causal_mask(seq_len):
     """
     # Create mask matrix with -inf in upper triangle
     # This blocks attention to future tokens
+    # Shape: (seq_len, seq_len)
+    # Example: seq_len=3 → [[0, -inf, -inf], [0, 0, -inf], [0, 0, 0]]
     mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
     return mask
 
@@ -403,10 +405,20 @@ class TokenEmbedding(nn.Module):
         
         Args:
             token_ids: Tensor of token IDs, shape (batch, seq_len)
+                       Example: (batch=2, seq_len=5)
         
         Returns:
             Token embeddings, shape (batch, seq_len, d_model)
+            Example: (2, 5, 64) - each token ID becomes a 64-dim vector
+            
+        Matrix Operation:
+            nn.Embedding looks up each token ID in the weight matrix
+            weight shape: (vocab_size, d_model) = (1000, 64)
+            For each token_id in [0, vocab_size), return weight[token_id]
         """
+        # Input: token_ids with shape (batch, seq_len)
+        # Output: embeddings with shape (batch, seq_len, d_model)
+        # Each token ID is looked up in the embedding table
         return self.embedding(token_ids)
 
 
@@ -460,9 +472,17 @@ class PositionEmbedding(nn.Module):
         
         Returns:
             Position embeddings, shape (seq_len, d_model)
+            Example: seq_len=5 → shape (5, 64)
+            
+        Matrix Operation:
+            Creates position indices [0, 1, 2, ..., seq_len-1]
+            Looks up each position in embedding table
+            weight shape: (max_seq_len, d_model) = (128, 64)
         """
         # Create position indices [0, 1, 2, ..., seq_len-1]
+        # Shape: (seq_len,)
         positions = torch.arange(seq_len, dtype=torch.long)
+        # Output shape: (seq_len, d_model)
         return self.embedding(positions)
 
 
@@ -555,7 +575,9 @@ class GPT(nn.Module):
         print(f"{'='*50}")
         
         # LEARNABLE Embedding layers (nn.Embedding)
+        # Token embedding weight shape: (vocab_size, d_model)
         self.token_embedding = TokenEmbedding(vocab_size, d_model)
+        # Position embedding weight shape: (max_seq_len, d_model)
         self.position_embedding = PositionEmbedding(max_seq_len, d_model)
         
         # LEARNABLE Transformer blocks
@@ -568,9 +590,12 @@ class GPT(nn.Module):
             print(f"  Block {i+1}/{n_blocks} created")
         
         # LEARNABLE Final layer norm (nn.LayerNorm)
+        # weight shape: (d_model,), bias shape: (d_model,)
         self.ln_final = nn.LayerNorm(d_model)
         
         # LEARNABLE Output projection (nn.Linear)
+        # weight shape: (vocab_size, d_model), bias shape: (vocab_size,)
+        # Transforms from (batch, seq_len, d_model) → (batch, seq_len, vocab_size)
         self.output = nn.Linear(d_model, vocab_size)
         
         print(f"\n  Final LayerNorm: nn.LayerNorm({d_model})")
@@ -587,29 +612,91 @@ class GPT(nn.Module):
         
         Args:
             token_ids: Input token IDs, shape (batch, seq_len)
+                       Example: (batch=2, seq_len=10) - 2 sequences of 10 tokens each
         
         Returns:
             logits: Output logits, shape (batch, seq_len, vocab_size)
+                    Example: (2, 10, 1000) - probability distribution over vocab for each position
+        
+        MATRIX DIMENSIONS THROUGH FORWARD PASS:
+        =======================================
+        
+        1. INPUT:
+           token_ids: (batch, seq_len)
+           Example: (2, 10) - integer token IDs
+        
+        2. TOKEN EMBEDDING:
+           Input:  (batch, seq_len) = (2, 10)
+           Weight: (vocab_size, d_model) = (1000, 64)
+           Output: (batch, seq_len, d_model) = (2, 10, 64)
+           
+           Operation: Each token ID looks up a row in embedding table
+        
+        3. POSITION EMBEDDING:
+           Input:  seq_len (creates [0,1,...,seq_len-1])
+           Weight: (max_seq_len, d_model) = (128, 64)
+           Output: (seq_len, d_model) = (10, 64)
+           
+           Operation: Each position index looks up a row in embedding table
+        
+        4. COMBINE EMBEDDINGS:
+           token_embs: (batch, seq_len, d_model) = (2, 10, 64)
+           pos_embs:   (seq_len, d_model) = (10, 64)
+           
+           Broadcasting: pos_embs is broadcast to (batch, seq_len, d_model)
+           x = token_embs + pos_embs: (2, 10, 64)
+        
+        5. TRANSFORMER BLOCKS:
+           Input:  (batch, seq_len, d_model) = (2, 10, 64)
+           Output: (batch, seq_len, d_model) = (2, 10, 64)
+           
+           Shape is preserved! Only values change.
+        
+        6. FINAL LAYERNORM:
+           Input:  (batch, seq_len, d_model) = (2, 10, 64)
+           Output: (batch, seq_len, d_model) = (2, 10, 64)
+           
+           Normalizes each position's d_model features
+        
+        7. OUTPUT PROJECTION:
+           Input:  (batch, seq_len, d_model) = (2, 10, 64)
+           Weight: (vocab_size, d_model) = (1000, 64)  [transposed internally]
+           Bias:   (vocab_size,) = (1000,)
+           Output: (batch, seq_len, vocab_size) = (2, 10, 1000)
+           
+           Operation: For each position, compute logits for all vocab_size tokens
         """
         batch, seq_len = token_ids.shape
+        # token_ids shape: (batch, seq_len)
         
         # Get token embeddings (LEARNABLE)
+        # Input:  (batch, seq_len)
+        # Output: (batch, seq_len, d_model)
         token_embs = self.token_embedding(token_ids)  # (batch, seq_len, d_model)
         
         # Get position embeddings (LEARNABLE)
+        # Input:  seq_len (scalar)
+        # Output: (seq_len, d_model)
         pos_embs = self.position_embedding(seq_len)  # (seq_len, d_model)
         
         # Combine: broadcast position embeddings to batch
+        # token_embs: (batch, seq_len, d_model)
+        # pos_embs:   (seq_len, d_model) → broadcasts to (batch, seq_len, d_model)
+        # x: (batch, seq_len, d_model)
         x = token_embs + pos_embs  # (batch, seq_len, d_model)
         
         # Pass through transformer blocks (LEARNABLE)
+        # Each block preserves shape: (batch, seq_len, d_model) → (batch, seq_len, d_model)
         for i, block in enumerate(self.blocks):
             x = block(x)
         
         # Final layer norm (LEARNABLE)
+        # Shape preserved: (batch, seq_len, d_model)
         x = self.ln_final(x)
         
         # Output projection (LEARNABLE)
+        # Input:  (batch, seq_len, d_model)
+        # Output: (batch, seq_len, vocab_size)
         logits = self.output(x)  # (batch, seq_len, vocab_size)
         
         return logits
@@ -666,19 +753,86 @@ class GPT(nn.Module):
 # Minimal TransformerBlock for standalone execution
 # (In the full project, this imports from lesson 5)
 class TransformerBlock(nn.Module):
-        """Minimal Transformer block for standalone execution."""
+    """Minimal Transformer block for standalone execution."""
+    
+    def __init__(self, d_model, n_heads, d_ff):
+        """
+        Initialize Transformer block.
         
-        def __init__(self, d_model, n_heads, d_ff):
-            super().__init__()
-            self.ln1 = nn.LayerNorm(d_model)
-            self.ln2 = nn.LayerNorm(d_model)
-            self.attention = MultiHeadAttention(d_model, n_heads)
-            self.ffn = FeedForwardNetwork(d_model, d_ff)
+        Args:
+            d_model: Embedding dimension
+            n_heads: Number of attention heads
+            d_ff: Feed-forward hidden dimension
         
-        def forward(self, x):
-            x = x + self.attention(self.ln1(x))
-            x = x + self.ffn(self.ln2(x))
-            return x
+        MATRIX DIMENSIONS:
+        - ln1, ln2: LayerNorm with weight (d_model,), bias (d_model,)
+        - attention: MultiHeadAttention with 4 × (d_model, d_model) weight matrices
+        - ffn: FeedForwardNetwork with:
+          - fc1: weight (d_ff, d_model), bias (d_ff,)
+          - fc2: weight (d_model, d_ff), bias (d_model,)
+        """
+        super().__init__()
+        self.ln1 = nn.LayerNorm(d_model)
+        self.ln2 = nn.LayerNorm(d_model)
+        self.attention = MultiHeadAttention(d_model, n_heads)
+        self.ffn = FeedForwardNetwork(d_model, d_ff)
+    
+    def forward(self, x):
+        """
+        Forward pass through transformer block.
+        
+        Args:
+            x: Input tensor, shape (batch, seq_len, d_model)
+        
+        Returns:
+            Output tensor, shape (batch, seq_len, d_model)
+        
+        MATRIX DIMENSIONS THROUGH BLOCK:
+        =================================
+        
+        1. PRE-NORM (attention path):
+           Input: x = (batch, seq_len, d_model)
+           ln1(x) = (batch, seq_len, d_model)
+        
+        2. ATTENTION:
+           Input:  (batch, seq_len, d_model)
+           Output: (batch, seq_len, d_model)
+           
+           See MultiHeadAttention for internal dimensions.
+        
+        3. RESIDUAL CONNECTION:
+           x + attention(ln1(x))
+           (batch, seq_len, d_model) + (batch, seq_len, d_model)
+           = (batch, seq_len, d_model)
+        
+        4. PRE-NORM (ffn path):
+           Input: x = (batch, seq_len, d_model)
+           ln2(x) = (batch, seq_len, d_model)
+        
+        5. FEED-FORWARD:
+           Input:  (batch, seq_len, d_model)
+           fc1:    (batch, seq_len, d_model) @ (d_model, d_ff) → (batch, seq_len, d_ff)
+           fc2:    (batch, seq_len, d_ff) @ (d_ff, d_model) → (batch, seq_len, d_model)
+           Output: (batch, seq_len, d_model)
+        
+        6. RESIDUAL CONNECTION:
+           x + ffn(ln2(x))
+           (batch, seq_len, d_model) + (batch, seq_len, d_model)
+           = (batch, seq_len, d_model)
+        """
+        # Pre-norm + attention + residual
+        # x: (batch, seq_len, d_model)
+        # ln1(x): (batch, seq_len, d_model) - normalized
+        # attention(ln1(x)): (batch, seq_len, d_model)
+        # x + attention: (batch, seq_len, d_model) - residual connection
+        x = x + self.attention(self.ln1(x))
+        
+        # Pre-norm + ffn + residual
+        # ln2(x): (batch, seq_len, d_model) - normalized
+        # ffn(ln2(x)): (batch, seq_len, d_model)
+        # x + ffn: (batch, seq_len, d_model) - residual connection
+        x = x + self.ffn(self.ln2(x))
+        return x
 
 
 # Minimal MultiHeadAttention for standalone execution
@@ -686,11 +840,44 @@ class MultiHeadAttention(nn.Module):
     """Minimal MultiHeadAttention for standalone execution."""
     
     def __init__(self, d_model, n_heads):
+        """
+        Initialize multi-head attention.
+        
+        Args:
+            d_model: Embedding dimension
+            n_heads: Number of attention heads
+        
+        MATRIX DIMENSIONS:
+        ==================
+        d_k = d_model // n_heads
+        
+        W_q: weight (d_model, d_model), bias (d_model,)
+             Projects input to Query space
+             Input: (batch, seq_len, d_model)
+             Output: (batch, seq_len, d_model)
+        
+        W_k: weight (d_model, d_model), bias (d_model,)
+             Projects input to Key space
+             Input: (batch, seq_len, d_model)
+             Output: (batch, seq_len, d_model)
+        
+        W_v: weight (d_model, d_model), bias (d_model,)
+             Projects input to Value space
+             Input: (batch, seq_len, d_model)
+             Output: (batch, seq_len, d_model)
+        
+        W_o: weight (d_model, d_model), bias (d_model,)
+             Projects combined head outputs
+             Input: (batch, seq_len, d_model)
+             Output: (batch, seq_len, d_model)
+        """
         super().__init__()
         self.d_model = d_model
         self.n_heads = n_heads
-        self.d_k = d_model // n_heads
+        self.d_k = d_model // n_heads  # Dimension per head
         
+        # Each projection is a linear layer: (d_model, d_model)
+        # These are LEARNABLE parameters!
         self.W_q = nn.Linear(d_model, d_model)
         self.W_k = nn.Linear(d_model, d_model)
         self.W_v = nn.Linear(d_model, d_model)
@@ -699,39 +886,169 @@ class MultiHeadAttention(nn.Module):
         self.register_buffer('causal_mask', None)
     
     def _split_heads(self, x):
+        """
+        Split embeddings into multiple heads.
+        
+        Args:
+            x: Input tensor, shape (batch, seq_len, d_model)
+        
+        Returns:
+            Split tensor, shape (batch, n_heads, seq_len, d_k)
+        
+        MATRIX OPERATION:
+        =================
+        Input:  (batch, seq_len, d_model)
+                Example: (2, 10, 64)
+        
+        Step 1 - Reshape:
+                (batch, seq_len, n_heads, d_k)
+                Example: (2, 10, 4, 16)
+                Splits d_model=64 into n_heads=4 × d_k=16
+        
+        Step 2 - Transpose:
+                (batch, n_heads, seq_len, d_k)
+                Example: (2, 4, 10, 16)
+                Moves n_heads dimension to position 1
+        
+        Result: Each head now has its own d_k-dimensional view
+        """
         batch, seq_len, _ = x.shape
+        # Reshape: (batch, seq_len, d_model) → (batch, seq_len, n_heads, d_k)
         x = x.view(batch, seq_len, self.n_heads, self.d_k)
+        # Transpose: (batch, seq_len, n_heads, d_k) → (batch, n_heads, seq_len, d_k)
         return x.transpose(1, 2)
     
     def _combine_heads(self, x):
+        """
+        Combine outputs from multiple heads.
+        
+        Args:
+            x: Input tensor, shape (batch, n_heads, seq_len, d_k)
+        
+        Returns:
+            Combined tensor, shape (batch, seq_len, d_model)
+        
+        MATRIX OPERATION:
+        =================
+        Input:  (batch, n_heads, seq_len, d_k)
+                Example: (2, 4, 10, 16)
+        
+        Step 1 - Transpose:
+                (batch, seq_len, n_heads, d_k)
+                Example: (2, 10, 4, 16)
+        
+        Step 2 - Reshape:
+                (batch, seq_len, d_model)
+                Example: (2, 10, 64)
+                Combines n_heads=4 × d_k=16 → d_model=64
+        """
         batch, _, seq_len, _ = x.shape
+        # Transpose: (batch, n_heads, seq_len, d_k) → (batch, seq_len, n_heads, d_k)
         x = x.transpose(1, 2)
+        # Reshape: (batch, seq_len, n_heads, d_k) → (batch, seq_len, d_model)
         return x.contiguous().view(batch, seq_len, self.d_model)
     
     def forward(self, x):
+        """
+        Forward pass through multi-head attention.
+        
+        Args:
+            x: Input tensor, shape (batch, seq_len, d_model)
+        
+        Returns:
+            Output tensor, shape (batch, seq_len, d_model)
+        
+        MATRIX DIMENSIONS THROUGH FORWARD PASS:
+        =======================================
+        
+        1. LINEAR PROJECTIONS:
+           Q = W_q(x): (batch, seq_len, d_model)
+           K = W_k(x): (batch, seq_len, d_model)
+           V = W_v(x): (batch, seq_len, d_model)
+        
+        2. SPLIT HEADS:
+           Q_heads: (batch, n_heads, seq_len, d_k)
+           K_heads: (batch, n_heads, seq_len, d_k)
+           V_heads: (batch, n_heads, seq_len, d_k)
+        
+        3. ATTENTION SCORES:
+           scores = Q @ K^T / sqrt(d_k)
+           Q_heads: (batch, n_heads, seq_len, d_k)
+           K_heads^T: (batch, n_heads, d_k, seq_len)
+           scores: (batch, n_heads, seq_len, seq_len)
+           
+           Example: (2, 4, 10, 16) @ (2, 4, 16, 10) → (2, 4, 10, 10)
+           Each of 10 positions gets attention score over all 10 positions
+        
+        4. APPLY MASK:
+           mask: (1, 1, seq_len, seq_len) or (seq_len, seq_len)
+           scores + mask: (batch, n_heads, seq_len, seq_len)
+           Upper triangle becomes -inf (blocked after softmax)
+        
+        5. SOFTMAX:
+           attn = softmax(scores): (batch, n_heads, seq_len, seq_len)
+           Each row sums to 1.0
+        
+        6. ATTENTION OUTPUT:
+           output = attn @ V_heads
+           attn: (batch, n_heads, seq_len, seq_len)
+           V_heads: (batch, n_heads, seq_len, d_k)
+           output: (batch, n_heads, seq_len, d_k)
+           
+           Example: (2, 4, 10, 10) @ (2, 4, 10, 16) → (2, 4, 10, 16)
+           Weighted sum of values based on attention weights
+        
+        7. COMBINE HEADS:
+           combined: (batch, seq_len, d_model)
+           Reshapes (batch, n_heads, seq_len, d_k) → (batch, seq_len, d_model)
+        
+        8. OUTPUT PROJECTION:
+           output = W_o(combined)
+           combined: (batch, seq_len, d_model)
+           W_o: (d_model, d_model)
+           output: (batch, seq_len, d_model)
+        """
         batch, seq_len, _ = x.shape
         
+        # Step 1: Linear projections
+        # Each: (batch, seq_len, d_model) → (batch, seq_len, d_model)
         Q = self.W_q(x)
         K = self.W_k(x)
         V = self.W_v(x)
         
+        # Step 2: Split into heads
+        # Each: (batch, seq_len, d_model) → (batch, n_heads, seq_len, d_k)
         Q_heads = self._split_heads(Q)
         K_heads = self._split_heads(K)
         V_heads = self._split_heads(V)
         
-        # Create causal mask
+        # Step 3: Create causal mask
         if self.causal_mask is None or self.causal_mask.shape[-1] < seq_len:
+            # mask: (seq_len, seq_len)
             mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1) * float('-inf')
+            # Add batch and head dimensions: (1, 1, seq_len, seq_len)
             self.causal_mask = mask.unsqueeze(0).unsqueeze(0)
         mask = self.causal_mask[:, :, :seq_len, :seq_len]
         
+        # Step 4: Compute scaled dot-product attention
         d_k = Q_heads.shape[-1]
+        # scores: (batch, n_heads, seq_len, seq_len)
+        # Q @ K^T: (batch, n_heads, seq_len, d_k) @ (batch, n_heads, d_k, seq_len)
         scores = torch.matmul(Q_heads, K_heads.transpose(-2, -1)) / (d_k ** 0.5)
-        scores = scores + mask
-        attn = F.softmax(scores, dim=-1)
+        scores = scores + mask  # Apply causal mask
+        attn = F.softmax(scores, dim=-1)  # (batch, n_heads, seq_len, seq_len)
         
+        # Step 5: Apply attention to values
+        # output: (batch, n_heads, seq_len, d_k)
+        # attn @ V: (batch, n_heads, seq_len, seq_len) @ (batch, n_heads, seq_len, d_k)
         output = torch.matmul(attn, V_heads)
+        
+        # Step 6: Combine heads
+        # output: (batch, seq_len, d_model)
         output = self._combine_heads(output)
+        
+        # Step 7: Output projection
+        # output: (batch, seq_len, d_model)
         output = self.W_o(output)
         
         return output
@@ -741,13 +1058,64 @@ class FeedForwardNetwork(nn.Module):
     """Minimal FeedForwardNetwork for standalone execution."""
     
     def __init__(self, d_model, d_ff):
+        """
+        Initialize feed-forward network.
+        
+        Args:
+            d_model: Embedding dimension
+            d_ff: Hidden dimension (typically 4x d_model)
+        
+        MATRIX DIMENSIONS:
+        ==================
+        fc1: weight (d_ff, d_model), bias (d_ff,)
+             Expands from d_model to d_ff
+             Input: (batch, seq_len, d_model)
+             Output: (batch, seq_len, d_ff)
+        
+        fc2: weight (d_model, d_ff), bias (d_model,)
+             Projects back from d_ff to d_model
+             Input: (batch, seq_len, d_ff)
+             Output: (batch, seq_len, d_model)
+        """
         super().__init__()
         self.fc1 = nn.Linear(d_model, d_ff)
         self.fc2 = nn.Linear(d_ff, d_model)
     
     def forward(self, x):
+        """
+        Forward pass through feed-forward network.
+        
+        Args:
+            x: Input tensor, shape (batch, seq_len, d_model)
+        
+        Returns:
+            Output tensor, shape (batch, seq_len, d_model)
+        
+        MATRIX DIMENSIONS:
+        ==================
+        1. fc1 (expansion):
+           Input:  (batch, seq_len, d_model)
+           Weight: (d_ff, d_model) [transposed internally]
+           Output: (batch, seq_len, d_ff)
+           
+           Example: (2, 10, 64) → (2, 10, 256)
+        
+        2. ReLU activation:
+           Shape unchanged: (batch, seq_len, d_ff)
+           Sets negative values to 0
+        
+        3. fc2 (projection back):
+           Input:  (batch, seq_len, d_ff)
+           Weight: (d_model, d_ff) [transposed internally]
+           Output: (batch, seq_len, d_model)
+           
+           Example: (2, 10, 256) → (2, 10, 64)
+        """
+        # fc1: (batch, seq_len, d_model) → (batch, seq_len, d_ff)
         x = self.fc1(x)
+        # ReLU: shape unchanged
         x = F.relu(x)
+        # fc2: (batch, seq_len, d_ff) → (batch, seq_len, d_model)
         x = self.fc2(x)
         return x
 
