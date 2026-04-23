@@ -194,26 +194,90 @@ class TokenEmbedding:
     After training, similar words have similar vectors!
     """
     
-    def __init__(self, vocab_size, embedding_dim):
+    def __init__(self, vocab_size, embedding_dim, vocab_list=None):
         """
         Create embedding table for vocabulary.
+        
+        NOTE: In this educational example, we initialize with structured
+        values to demonstrate the CONCEPT. In real training, these would
+        be LEARNED from data through backpropagation!
         
         Args:
             vocab_size: Number of tokens (e.g., 10 for our mini vocab)
             embedding_dim: Size of each vector (e.g., 8 for demo, 768 for GPT)
+            vocab_list: Optional list of words for structured initialization
         """
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
+        self.vocab_list = vocab_list or []
         
-        # Initialize embeddings randomly (will be learned during training)
+        # Initialize embeddings with STRUCTURED values for demonstration
+        # In real training, these would start random and be LEARNED!
         np.random.seed(42)
-        self.weights = np.random.randn(vocab_size, embedding_dim) * 0.1
+        
+        if vocab_list:
+            # Create SEMANTICALLY-MEANINGFUL initial embeddings
+            # This simulates what embeddings might look like AFTER training
+            # where similar words have similar vectors
+            self.weights = self._create_structured_embeddings(embedding_dim)
+        else:
+            # Standard random initialization (how real models start)
+            self.weights = np.random.randn(vocab_size, embedding_dim) * 0.1
         
         print(f"\nCreated embedding table:")
         print(f"  Vocabulary: {vocab_size} tokens")
         print(f"  Embedding dim: {embedding_dim}")
         print(f"  Table shape: {self.weights.shape}")
         print(f"  Total parameters: {vocab_size * embedding_dim:,}")
+        if vocab_list:
+            print(f"  Note: Using structured init (simulating trained embeddings)")
+            print(f"        Real models LEARN these values from data!")
+    
+    def _create_structured_embeddings(self, dim):
+        """
+        Create embeddings with semantic structure for demonstration.
+        
+        This simulates what embeddings might look like AFTER training:
+        - Similar words (cat/dog) have similar vectors
+        - Action words (sat/ate/ran) cluster together
+        - Function words (the) have distinct patterns
+        
+        REAL TRAINING: These patterns emerge from learning on data!
+        """
+        weights = np.zeros((self.vocab_size, dim))
+        
+        # Define semantic categories and their "prototype" vectors
+        # Each category gets a base vector + small random noise
+        categories = {
+            'animals': ['cat', 'dog'],           # Living creatures
+            'actions': ['sat', 'slept', 'ate', 'ran'],  # Verbs/actions
+            'articles': ['The', 'the'],          # Function words
+            'objects': ['mat'],                  # Inanimate objects
+        }
+        
+        # Create prototype vectors for each category
+        np.random.seed(42)
+        prototypes = {}
+        for cat_name in categories:
+            # Each category gets a random prototype
+            prototypes[cat_name] = np.random.randn(dim) * 0.5
+        
+        # Assign embeddings based on category
+        for word_idx, word in enumerate(self.vocab_list):
+            assigned = False
+            for cat_name, cat_words in categories.items():
+                if word in cat_words:
+                    # Add small noise to prototype (so words aren't identical)
+                    noise = np.random.randn(dim) * 0.05
+                    weights[word_idx] = prototypes[cat_name] + noise
+                    assigned = True
+                    break
+            
+            if not assigned:
+                # Unassigned words get random embeddings
+                weights[word_idx] = np.random.randn(dim) * 0.1
+        
+        return weights
     
     def forward(self, token_ids):
         """
