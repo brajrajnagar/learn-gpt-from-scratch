@@ -1209,5 +1209,5 @@ Transformer:     (batch, seq_len, d_model) → preserved
 Output:          (batch, seq_len, vocab_size)
 
 NEXT: Training the model (Lesson 7)
-Run: python 07_training.py
+Run: python 07_training_loop.py
 =============================================================================""")

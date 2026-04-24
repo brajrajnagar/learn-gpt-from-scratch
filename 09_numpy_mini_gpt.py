@@ -386,7 +386,7 @@ class Trainer:
 
         WHY? Implementing backprop through attention + embeddings in pure
         NumPy is extremely complex. This shows the STRUCTURE of a training
-        loop. Lesson 10 (10_real_training.py) does REAL training with PyTorch,
+        loop. Lesson 10 (10_pytorch_gpt_training.py) does REAL training with PyTorch,
         where autograd handles backpropagation automatically.
         """
         print("\n" + "="*60)

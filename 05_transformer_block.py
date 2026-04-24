@@ -1126,7 +1126,7 @@ def main():
     print("  → LayerNorm(x) → FFN → x + ffn")
     print()
     print("NEXT: Complete GPT Model (embeddings + transformer stack + output)")
-    print("Run: python 06_gpt_model.py")
+    print("Run: python 06_gpt_architecture.py")
     print("=" * 70)
     print()
 

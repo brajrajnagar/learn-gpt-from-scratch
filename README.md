@@ -24,15 +24,15 @@ By the end of this course, you'll have built:
 | Lesson | File | What You Learn |
 |--------|------|----------------|
 | 5 | `05_transformer_block.py` | Complete transformer block (attention + FFN + residuals) |
-| 6 | `06_gpt_model.py` | Full GPT architecture (stacked blocks + output projection) |
+| 6 | `06_gpt_architecture.py` | Full GPT architecture (stacked blocks + output projection) |
 
 ### Part 3: Training and Generation (NumPy)
 
 | Lesson | File | What You Learn |
 |--------|------|----------------|
-| 7 | `07_training.py` | Cross-entropy loss, training loop, perplexity |
-| 8 | `08_generation.py` | Greedy decoding, sampling, top-k, top-p, temperature |
-| 9 | `09_mini_gpt.py` | **Complete working Mini GPT** - everything together! |
+| 7 | `07_training_loop.py` | Cross-entropy loss, training loop, perplexity |
+| 8 | `08_text_generation.py` | Greedy decoding, sampling, top-k, top-p, temperature |
+| 9 | `09_numpy_mini_gpt.py` | **Complete working Mini GPT** - everything together! |
 
 ### Part 4: Production Implementation (PyTorch) ⭐
 
@@ -63,10 +63,10 @@ python 02_embeddings.py
 python 03_attention.py
 python 04_multihead_attention.py
 python 05_transformer_block.py
-python 06_gpt_model.py
-python 07_training.py
-python 08_generation.py
-python 09_mini_gpt.py
+python 06_gpt_architecture.py
+python 07_training_loop.py
+python 08_text_generation.py
+python 09_numpy_mini_gpt.py
 
 # Finally, see the PyTorch implementation!
 python 10_pytorch_transformer.py
@@ -211,7 +211,7 @@ Input: "The cat sat on the"
 
 1. **Change Model Size**
    ```python
-   # In 09_mini_gpt.py, modify:
+   # In 09_numpy_mini_gpt.py, modify:
    model = MiniGPT(
        vocab_size=tokenizer.vocab_size,
        max_seq_len=64,
@@ -236,7 +236,7 @@ Input: "The cat sat on the"
 
 3. **Train on Your Own Text**
    ```python
-   # Replace TRAINING_TEXT in 09_mini_gpt.py
+   # Replace TRAINING_TEXT in 09_numpy_mini_gpt.py
    TRAINING_TEXT = """
    Your text here!
    The more data, the better!

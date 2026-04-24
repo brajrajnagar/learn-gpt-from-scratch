@@ -1030,7 +1030,7 @@ Next, we learn to GENERATE text:
 - Top-k sampling (pick from best k)
 - Temperature (adjust randomness)
 
-Next: 08_generation.py
+Next: 08_text_generation.py
 =============================================================================""")
 
 print("\n" + "="*70)

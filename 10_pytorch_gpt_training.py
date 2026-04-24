@@ -31,10 +31,10 @@ WHAT WE'LL BUILD:
                     ↑ Our model will learn to generate text like this!
 
 HOW TO RUN:
-  python 10_real_training.py --mode train       # Train from scratch
-  python 10_real_training.py --mode resume      # Resume from checkpoint
-  python 10_real_training.py --mode inference    # Generate text only
-  python 10_real_training.py --mode inference --prompt "ROMEO:" --temperature 0.7
+  python 10_pytorch_gpt_training.py --mode train       # Train from scratch
+  python 10_pytorch_gpt_training.py --mode resume      # Resume from checkpoint
+  python 10_pytorch_gpt_training.py --mode inference    # Generate text only
+  python 10_pytorch_gpt_training.py --mode inference --prompt "ROMEO:" --temperature 0.7
 """
 
 import torch
@@ -60,10 +60,10 @@ torch.manual_seed(42)
 #   --mode inference   Just generate text (no training)
 #
 # Examples:
-#   python 10_real_training.py --mode train --max_iters 10000
-#   python 10_real_training.py --mode train --d_model 512 --n_heads 8 --n_blocks 12
-#   python 10_real_training.py --mode inference --prompt "To be or" --temperature 0.5
-#   python 10_real_training.py --mode resume --checkpoint data/checkpoint.pt
+#   python 10_pytorch_gpt_training.py --mode train --max_iters 10000
+#   python 10_pytorch_gpt_training.py --mode train --d_model 512 --n_heads 8 --n_blocks 12
+#   python 10_pytorch_gpt_training.py --mode inference --prompt "To be or" --temperature 0.5
+#   python 10_pytorch_gpt_training.py --mode resume --checkpoint data/checkpoint.pt
 # =============================================================================
 
 parser = argparse.ArgumentParser(description='GPT Training from Scratch')
@@ -825,8 +825,8 @@ print(f"Grad clipping: {config.grad_clip} (prevents exploding gradients)")
 #
 # USAGE:
 #   Save: Automatically saved when validation loss improves
-#   Load: python 10_real_training.py --mode resume
-#         python 10_real_training.py --mode inference
+#   Load: python 10_pytorch_gpt_training.py --mode resume
+#         python 10_pytorch_gpt_training.py --mode inference
 # =============================================================================
 
 print("\n" + "="*70)
@@ -955,7 +955,7 @@ if args.mode == 'inference':
         print(f"Best checkpoint not found, using latest: {checkpoint_path}")
     else:
         print(f"ERROR: No checkpoint found at {args.checkpoint} or {args.checkpoint_best}")
-        print(f"  Train first: python 10_real_training.py --mode train")
+        print(f"  Train first: python 10_pytorch_gpt_training.py --mode train")
         exit(1)
     load_checkpoint(model, None, checkpoint_path, config.device)
     model.eval()
@@ -975,7 +975,7 @@ best_val_loss = float('inf')
 if args.mode == 'resume':
     if not os.path.exists(args.checkpoint):
         print(f"ERROR: Checkpoint not found at {args.checkpoint}")
-        print(f"  Train first: python 10_real_training.py --mode train")
+        print(f"  Train first: python 10_pytorch_gpt_training.py --mode train")
         exit(1)
     start_step, best_val_loss = load_checkpoint(model, optimizer, args.checkpoint, config.device)
     model.to(config.device)
@@ -1114,9 +1114,9 @@ MODEL COMPARISON:
   └──────────────┴──────────┴──────────┴──────────┘
 
 HOW TO USE:
-  Train:     python 10_real_training.py --mode train
-  Resume:    python 10_real_training.py --mode resume
-  Generate:  python 10_real_training.py --mode inference --prompt "ROMEO:"
+  Train:     python 10_pytorch_gpt_training.py --mode train
+  Resume:    python 10_pytorch_gpt_training.py --mode resume
+  Generate:  python 10_pytorch_gpt_training.py --mode inference --prompt "ROMEO:"
 
 You now understand the COMPLETE GPT pipeline, from theory to practice!
 """)

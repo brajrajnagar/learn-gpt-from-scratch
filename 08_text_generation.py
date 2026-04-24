@@ -1084,7 +1084,7 @@ Next, we combine everything into a working Mini GPT:
 - Text generation
 - Train on sample data
 
-Next: 09_mini_gpt.py
+Next: 09_numpy_mini_gpt.py
 =============================================================================""")
 
 print("\n" + "="*70)
