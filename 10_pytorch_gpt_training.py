@@ -89,6 +89,10 @@ parser.add_argument('--seq_length', type=int, default=256,
 parser.add_argument('--batch_size', type=int, default=128,
                     help='Batch size — sequences processed in parallel (default: 128)')
 
+# --- Multi-GPU ---
+parser.add_argument('--num_gpus', type=int, default=1,
+                    help='Number of GPUs to use for training (default: 1)')
+
 # --- Model Architecture ---
 parser.add_argument('--d_model', type=int, default=384,
                     help='Embedding dimension (default: 384)')
@@ -178,16 +182,33 @@ if torch.backends.mps.is_available():
     config.device = 'mps'
     os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
     print("Using Apple Silicon GPU (MPS)")
+    config.num_gpus = 1  # MPS doesn't support multi-GPU
 elif torch.cuda.is_available():
     config.device = 'cuda'
-    print("Using NVIDIA GPU (CUDA)")
+    # Set visible GPUs based on num_gpus argument
+    available_gpus = torch.cuda.device_count()
+    if args.num_gpus > 1:
+        if args.num_gpus > available_gpus:
+            print(f"WARNING: Requested {args.num_gpus} GPUs, but only {available_gpus} available. Using {available_gpus}.")
+            args.num_gpus = available_gpus
+        # Use first num_gpus GPUs
+        gpu_ids = ','.join(str(i) for i in range(args.num_gpus))
+        os.environ['CUDA_VISIBLE_DEVICES'] = gpu_ids
+        print(f"Using {args.num_gpus} NVIDIA GPUs (CUDA): {gpu_ids}")
+        config.num_gpus = args.num_gpus
+    else:
+        print("Using NVIDIA GPU (CUDA)")
+        config.num_gpus = 1
 else:
     config.device = 'cpu'
     print("Using CPU (no GPU available)")
+    config.num_gpus = 1
 
 print(f"Device: {config.device}")
 print(f"Batch size: {config.batch_size}")
 print(f"Sequence length: {config.seq_length}")
+if config.num_gpus > 1:
+    print(f"Multi-GPU: ENABLED ({config.num_gpus} GPUs)")
 
 
 # =============================================================================
@@ -759,15 +780,24 @@ print(f"  Embedding dim: {config.d_model}")
 print(f"  Attention heads: {config.n_heads} (each with {config.d_model // config.n_heads} dims)")
 print(f"  FFN hidden dim:  {config.d_ff}")
 
+# Multi-GPU: Wrap model with DataParallel
+if config.num_gpus > 1:
+    print(f"  Multi-GPU: Wrapping with DataParallel ({config.num_gpus} GPUs)")
+    model = nn.DataParallel(model)
+
 # torch.compile: Fuses operations for speed (CUDA only, not supported on MPS/CPU)
-if config.compile_model and hasattr(torch, 'compile') and config.device == 'cuda':
+# Note: torch.compile doesn't work well with DataParallel, so we skip it for multi-GPU
+if config.compile_model and hasattr(torch, 'compile') and config.device == 'cuda' and config.num_gpus == 1:
     try:
         model = torch.compile(model)
         print(f"  torch.compile: ENABLED (faster training)")
     except Exception as e:
         print(f"  torch.compile: SKIPPED ({e})")
 else:
-    print(f"  torch.compile: SKIPPED (not supported on {config.device})")
+    if config.num_gpus > 1:
+        print(f"  torch.compile: SKIPPED (not compatible with DataParallel)")
+    else:
+        print(f"  torch.compile: SKIPPED (not supported on {config.device})")
 
 
 # =============================================================================
@@ -930,6 +960,9 @@ def estimate_loss():
     for k in range(config.eval_iters):
         X, Y = get_batch('val', config.seq_length, config.batch_size, config.device)
         _, loss = model(X, Y)
+        # Handle DataParallel loss (returns tensor with one value per GPU)
+        if config.num_gpus > 1:
+            loss = loss.mean()  # Average losses across GPUs
         losses[k] = loss.item()
     model.train()
     return losses.mean()
@@ -997,6 +1030,11 @@ for step in pbar:
 
     # 3. Backward pass: compute gradients (PyTorch does this automatically!)
     optimizer.zero_grad()  # Clear old gradients
+    
+    # Handle DataParallel loss (returns list of losses from each GPU)
+    if config.num_gpus > 1:
+        loss = loss.mean()  # Average losses across GPUs
+    
     loss.backward()        # Compute new gradients
 
     # 4. Clip gradients to prevent training instability
