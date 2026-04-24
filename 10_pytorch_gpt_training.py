@@ -863,11 +863,21 @@ print("\n" + "="*70)
 print("STEP 9: Checkpoint Save/Load")
 print("="*70)
 
+def unwrap_model(m):
+    """Strip DataParallel and torch.compile wrappers to get the raw GPT module."""
+    # torch.compile wraps in OptimizedModule with _orig_mod
+    if hasattr(m, '_orig_mod'):
+        m = m._orig_mod
+    # DataParallel wraps in .module
+    if hasattr(m, 'module'):
+        m = m.module
+    return m
+
 def save_checkpoint(model, optimizer, step, best_val_loss, path):
     """Save full training checkpoint (model + optimizer + progress)."""
     checkpoint = {
         'step': step,
-        'model_state_dict': model.state_dict(),
+        'model_state_dict': unwrap_model(model).state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'best_val_loss': best_val_loss,
         'config': {
@@ -889,7 +899,18 @@ def save_checkpoint(model, optimizer, step, best_val_loss, path):
 def load_checkpoint(model, optimizer, path, device):
     """Load training checkpoint. Returns (start_step, best_val_loss)."""
     checkpoint = torch.load(path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    state_dict = checkpoint['model_state_dict']
+    # Strip legacy prefixes ("module." from DataParallel, "_orig_mod." from torch.compile)
+    # in case an older checkpoint was saved before unwrap_model was in place.
+    cleaned = {}
+    for k, v in state_dict.items():
+        nk = k
+        if nk.startswith('module.'):
+            nk = nk[len('module.'):]
+        if nk.startswith('_orig_mod.'):
+            nk = nk[len('_orig_mod.'):]
+        cleaned[nk] = v
+    unwrap_model(model).load_state_dict(cleaned)
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_step = checkpoint['step'] + 1
